@@ -35,6 +35,7 @@ class Card(BaseModel):
 
     id: str = Field(..., description="Unique identifier")
     name: str = Field(..., description="Card name (e.g., 'Chase Sapphire Preferred')")
+    nickname: str | None = Field(default=None, description="User-defined nickname")
     issuer: str = Field(..., description="Card issuer (Chase, Amex, etc.)")
     annual_fee: int = Field(default=0, description="Annual fee in dollars")
     signup_bonus: SignupBonus | None = Field(default=None, description="SUB details")

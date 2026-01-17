@@ -16,6 +16,7 @@ JINA_READER_PREFIX = "https://r.jina.ai/"
 
 # Common card issuer domains
 ALLOWED_DOMAINS = [
+    # Major issuers - official sites
     "americanexpress.com",
     "chase.com",
     "citi.com",
@@ -25,6 +26,7 @@ ALLOWED_DOMAINS = [
     "wellsfargo.com",
     "usbank.com",
     "barclays.com",
+    "biltrewards.com",
     # Review sites
     "doctorofcredit.com",
     "thepointsguy.com",

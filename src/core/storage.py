@@ -6,7 +6,8 @@ from datetime import date
 from pathlib import Path
 
 from .exceptions import StorageError
-from .models import Card, CardData
+from .models import Card, CardData, SignupBonus
+from .library import CardTemplate
 
 
 class CardStorage:
@@ -94,6 +95,41 @@ class CardStorage:
             credits=card_data.credits,
             opened_date=opened_date,
             raw_text=raw_text,
+        )
+
+        raw_cards = self._load_cards()
+        raw_cards.append(card.model_dump())
+        self._save_cards(raw_cards)
+
+        return card
+
+    def add_card_from_template(
+        self,
+        template: CardTemplate,
+        nickname: str | None = None,
+        opened_date: date | None = None,
+        signup_bonus: SignupBonus | None = None,
+    ) -> Card:
+        """Add a new card from a library template.
+
+        Args:
+            template: Card template from the library.
+            nickname: User-defined nickname for the card.
+            opened_date: When the card was opened.
+            signup_bonus: Optional signup bonus details.
+
+        Returns:
+            The created Card object with generated ID.
+        """
+        card = Card(
+            id=str(uuid.uuid4()),
+            name=template.name,
+            nickname=nickname,
+            issuer=template.issuer,
+            annual_fee=template.annual_fee,
+            signup_bonus=signup_bonus,
+            credits=template.credits,
+            opened_date=opened_date,
         )
 
         raw_cards = self._load_cards()

@@ -13,6 +13,9 @@ from src.core import (
     extract_from_url,
     extract_from_text,
     get_allowed_domains,
+    get_all_templates,
+    get_template,
+    SignupBonus,
 )
 from src.core.exceptions import ExtractionError, StorageError, FetchError
 
@@ -132,6 +135,61 @@ def render_add_card_section():
             except ExtractionError as e:
                 st.error(f"Extraction failed: {e}")
 
+    st.divider()
+
+    # Option 3: Select from Library
+    st.subheader("Option 3: Select from Library")
+
+    templates = get_all_templates()
+    if templates:
+        template_options = {"": "-- Select a card --"}
+        template_options.update({t.id: f"{t.name} ({t.issuer})" for t in templates})
+
+        selected_id = st.selectbox(
+            "Card Type",
+            options=list(template_options.keys()),
+            format_func=lambda x: template_options[x],
+            key="library_select",
+        )
+
+        if selected_id:
+            template = get_template(selected_id)
+            if template:
+                st.caption(f"Annual Fee: ${template.annual_fee} | {len(template.credits)} credits included")
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    lib_nickname = st.text_input(
+                        "Nickname (optional)",
+                        placeholder="e.g., P2's Platinum",
+                        key="lib_nickname",
+                    )
+                with col2:
+                    lib_opened_date = st.date_input(
+                        "Opened Date (optional)",
+                        value=None,
+                        key="lib_opened_date",
+                    )
+
+                with st.expander("View included credits", expanded=False):
+                    for credit in template.credits:
+                        notes = f" ({credit.notes})" if credit.notes else ""
+                        st.write(f"- {credit.name}: ${credit.amount}/{credit.frequency}{notes}")
+
+                if st.button("Add Card", type="primary", key="add_from_library"):
+                    try:
+                        card = st.session_state.storage.add_card_from_template(
+                            template=template,
+                            nickname=lib_nickname if lib_nickname else None,
+                            opened_date=lib_opened_date,
+                        )
+                        st.success(f"Added: {card.name}" + (f" ({card.nickname})" if card.nickname else ""))
+                        st.rerun()
+                    except StorageError as e:
+                        st.error(f"Failed to add: {e}")
+    else:
+        st.info("No card templates available in library.")
+
     # Show extraction result
     if st.session_state.last_extraction:
         st.divider()
@@ -206,7 +264,11 @@ def render_dashboard():
 
     # Card list
     for card in cards:
-        with st.expander(f"**{card.name}** - {card.issuer}", expanded=False):
+        display_name = f"**{card.name}**"
+        if card.nickname:
+            display_name += f" ({card.nickname})"
+        display_name += f" - {card.issuer}"
+        with st.expander(display_name, expanded=False):
             col1, col2 = st.columns(2)
 
             with col1:
@@ -236,6 +298,93 @@ def render_dashboard():
                 st.rerun()
 
 
+def render_library_section():
+    """Render the Add from Library interface."""
+    st.header("Add from Library")
+    st.caption("Select a pre-defined card template")
+
+    templates = get_all_templates()
+    if not templates:
+        st.info("No card templates available yet.")
+        return
+
+    # Template selector
+    template_options = {t.id: f"{t.name} ({t.issuer})" for t in templates}
+    selected_id = st.selectbox(
+        "Select Card",
+        options=list(template_options.keys()),
+        format_func=lambda x: template_options[x],
+    )
+
+    template = get_template(selected_id)
+    if not template:
+        return
+
+    st.divider()
+
+    # Card preview
+    st.subheader("Card Details")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        nickname = st.text_input(
+            "Nickname (optional)",
+            placeholder="e.g., My Amex Plat, P2's Platinum",
+        )
+        st.text_input("Card Name", value=template.name, disabled=True)
+        st.text_input("Issuer", value=template.issuer, disabled=True)
+        st.number_input("Annual Fee ($)", value=template.annual_fee, disabled=True)
+
+    with col2:
+        opened_date = st.date_input("Card Opened Date", value=None)
+
+        st.markdown("**Sign-up Bonus (optional)**")
+        sub_points = st.text_input(
+            "Bonus Amount",
+            placeholder="e.g., 80,000 points or $200 cash back",
+        )
+        sub_spend = st.number_input("Spend Requirement ($)", min_value=0, value=0)
+        sub_days = st.number_input(
+            "Time Period (days)",
+            min_value=0,
+            value=90,
+            help="Typically 90 days (3 months)",
+        )
+
+    # Show credits
+    if template.credits:
+        st.markdown("**Included Credits/Perks**")
+        for credit in template.credits:
+            notes = f" - {credit.notes}" if credit.notes else ""
+            st.write(f"- {credit.name}: ${credit.amount}/{credit.frequency}{notes}")
+
+    st.divider()
+
+    if st.button("Save Card", type="primary", key="save_library_card"):
+        try:
+            # Build signup bonus if provided
+            signup_bonus = None
+            if sub_points and sub_spend > 0:
+                signup_bonus = SignupBonus(
+                    points_or_cash=sub_points,
+                    spend_requirement=sub_spend,
+                    time_period_days=sub_days,
+                    deadline=None,
+                )
+
+            # Create card via storage (using add_card_from_template)
+            card = st.session_state.storage.add_card_from_template(
+                template=template,
+                nickname=nickname if nickname else None,
+                opened_date=opened_date,
+                signup_bonus=signup_bonus,
+            )
+            st.success(f"Saved: {card.name}" + (f" ({card.nickname})" if card.nickname else ""))
+            st.rerun()
+        except StorageError as e:
+            st.error(f"Failed to save: {e}")
+
+
 def main():
     """Main application entry point."""
     st.set_page_config(
@@ -247,12 +396,15 @@ def main():
     init_session_state()
     render_sidebar()
 
-    tab1, tab2 = st.tabs(["Add Card", "Dashboard"])
+    tab1, tab2, tab3 = st.tabs(["Add Card", "From Library", "Dashboard"])
 
     with tab1:
         render_add_card_section()
 
     with tab2:
+        render_library_section()
+
+    with tab3:
         render_dashboard()
 
 
