@@ -489,21 +489,44 @@ def render_add_card_section():
         # Import method selection
         import_method = st.radio(
             "Choose import method:",
-            ["Paste CSV/TSV Data", "Upload File", "Google Sheets URL"],
+            ["Google Sheets URL", "Upload File", "Paste CSV/TSV Data"],
             horizontal=True,
             key="import_method_radio"
         )
 
         spreadsheet_data = None
 
-        if import_method == "Paste CSV/TSV Data":
-            st.info("💡 Copy your spreadsheet data (select all cells, Ctrl+C) and paste here.")
-            spreadsheet_data = st.text_area(
-                "Paste your spreadsheet data:",
-                height=200,
-                placeholder="Paste your spreadsheet data here...\nInclude column headers in the first row.",
-                key="import_text_area"
+        if import_method == "Google Sheets URL":
+            st.info("💡 Make sure your Google Sheet is shared as 'Anyone with the link can view'")
+            sheet_url = st.text_input(
+                "Google Sheets URL:",
+                placeholder="https://docs.google.com/spreadsheets/d/...",
+                key="import_sheet_url"
             )
+            if sheet_url and st.button("Fetch from Google Sheets", key="import_fetch_sheets"):
+                try:
+                    import re
+                    # Extract sheet ID and gid
+                    sheet_id_match = re.search(r'/d/([a-zA-Z0-9-_]+)', sheet_url)
+                    gid_match = re.search(r'[#&]gid=(\d+)', sheet_url)
+
+                    if sheet_id_match:
+                        sheet_id = sheet_id_match.group(1)
+                        gid = gid_match.group(1) if gid_match else "0"
+
+                        # Build export URL
+                        export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=tsv&gid={gid}"
+
+                        # Fetch the data
+                        import urllib.request
+                        with urllib.request.urlopen(export_url) as response:
+                            spreadsheet_data = response.read().decode('utf-8')
+
+                        st.success("✓ Fetched spreadsheet data!")
+                    else:
+                        st.error("Invalid Google Sheets URL format")
+                except Exception as e:
+                    st.error(f"Failed to fetch: {e}")
 
         elif import_method == "Upload File":
             uploaded_file = st.file_uploader(
@@ -538,37 +561,14 @@ def render_add_card_section():
                 except Exception as e:
                     st.error(f"Failed to read file: {e}")
 
-        elif import_method == "Google Sheets URL":
-            st.info("💡 Make sure your Google Sheet is shared as 'Anyone with the link can view'")
-            sheet_url = st.text_input(
-                "Google Sheets URL:",
-                placeholder="https://docs.google.com/spreadsheets/d/...",
-                key="import_sheet_url"
+        elif import_method == "Paste CSV/TSV Data":
+            st.info("💡 Copy your spreadsheet data (select all cells, Ctrl+C) and paste here.")
+            spreadsheet_data = st.text_area(
+                "Paste your spreadsheet data:",
+                height=200,
+                placeholder="Paste your spreadsheet data here...\nInclude column headers in the first row.",
+                key="import_text_area"
             )
-            if sheet_url and st.button("Fetch from Google Sheets", key="import_fetch_sheets"):
-                try:
-                    import re
-                    # Extract sheet ID and gid
-                    sheet_id_match = re.search(r'/d/([a-zA-Z0-9-_]+)', sheet_url)
-                    gid_match = re.search(r'[#&]gid=(\d+)', sheet_url)
-
-                    if sheet_id_match:
-                        sheet_id = sheet_id_match.group(1)
-                        gid = gid_match.group(1) if gid_match else "0"
-
-                        # Build export URL
-                        export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=tsv&gid={gid}"
-
-                        # Fetch the data
-                        import urllib.request
-                        with urllib.request.urlopen(export_url) as response:
-                            spreadsheet_data = response.read().decode('utf-8')
-
-                        st.success("✓ Fetched spreadsheet data!")
-                    else:
-                        st.error("Invalid Google Sheets URL format")
-                except Exception as e:
-                    st.error(f"Failed to fetch: {e}")
 
         # Parse and preview
         if spreadsheet_data and st.button("Parse Spreadsheet", type="primary", key="import_parse_btn"):
@@ -2225,21 +2225,29 @@ def main():
     # Show welcome message for new users
     cards = st.session_state.storage.get_all_cards()
     if len(cards) == 0:
-        st.info("""
-        👋 **Welcome to ChurnPilot!**
+        st.markdown("""
+        <div style="padding: 1rem; background-color: #d1ecf1; border: 1px solid #bee5eb; border-radius: 0.5rem; color: #0c5460;">
 
-        ChurnPilot helps you track credit card signup bonuses, benefits, and deadlines.
+        👋 <strong>Welcome to ChurnPilot!</strong>
 
-        **Quick Start:**
-        1. Click **"Add Card"** tab to add your first card
-        2. Select from library, extract from URL, or import a spreadsheet
+        <p>ChurnPilot helps you track credit card signup bonuses, benefits, and deadlines.</p>
 
-        **What ChurnPilot tracks:**
-        - Benefit usage (Uber credits, hotel credits, etc.)
-        - Signup bonus deadlines (don't miss out on points!)
-        - Annual fee dates (call for retention offers in time)
-        - Chase 5/24 status (know when you can apply for more Chase cards)
-        """)
+        <p><strong>Quick Start:</strong></p>
+        <ol>
+        <li>Click the <strong style="background-color: #fff; padding: 2px 8px; border-radius: 4px;">Add Card</strong> tab above to add your first card</li>
+        <li>Select from library, extract from URL, or import a spreadsheet</li>
+        </ol>
+
+        <p><strong>What ChurnPilot tracks:</strong></p>
+        <ul>
+        <li>Benefit usage (Uber credits, hotel credits, etc.)</li>
+        <li>Signup bonus deadlines (don't miss out on points!)</li>
+        <li>Annual fee dates (call for retention offers in time)</li>
+        <li>Chase 5/24 status (know when you can apply for more Chase cards)</li>
+        </ul>
+
+        </div>
+        """, unsafe_allow_html=True)
 
     # Four main tabs (reordered: Dashboard → Action Required → Add Card → 5/24 Tracker)
     tab1, tab2, tab3, tab4 = st.tabs(["Dashboard", "Action Required", "Add Card", "5/24 Tracker"])
