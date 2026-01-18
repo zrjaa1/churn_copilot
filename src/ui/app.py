@@ -1769,8 +1769,7 @@ def render_action_required_tab():
         # Check unused credits
         for credit in card.credits:
             if credit.amount > 0:
-                period = get_current_period(credit.frequency)
-                is_used = card.credit_usage.get(credit.name, {}).get(period, False)
+                is_used = is_credit_used_this_period(credit.name, credit.frequency, card.credit_usage)
                 if not is_used:
                     unused_credits.append({
                         "card": card,
