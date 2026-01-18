@@ -464,56 +464,6 @@ def render_add_card_section():
 
     st.divider()
 
-    # Advanced options (collapsed by default)
-    with st.expander("Advanced: Extract from URL or Text"):
-        tab1, tab2 = st.tabs(["From URL", "From Text"])
-
-        with tab1:
-            url_col1, url_col2 = st.columns([4, 1])
-            with url_col1:
-                url_input = st.text_input(
-                    "URL",
-                    placeholder="https://www.uscreditcardguide.com/...",
-                    label_visibility="collapsed",
-                )
-            with url_col2:
-                extract_url_btn = st.button("Extract", type="secondary", use_container_width=True)
-
-            if extract_url_btn and url_input:
-                with st.spinner("Extracting..."):
-                    try:
-                        card_data = extract_from_url(url_input)
-                        st.session_state.last_extraction = card_data
-                        st.session_state.source_url = url_input
-                        st.success(f"Extracted: {card_data.name}")
-                    except (FetchError, ExtractionError) as e:
-                        st.error(f"Failed: {e}")
-
-        with tab2:
-            raw_text = st.text_area(
-                "Paste card info",
-                height=150,
-                placeholder="Paste card terms, benefits page content...",
-                key="text_input",
-            )
-
-            if st.button("Extract", key="extract_text_btn", disabled=len(raw_text) < 50):
-                with st.spinner("Extracting..."):
-                    try:
-                        card_data = extract_from_text(raw_text)
-                        st.session_state.last_extraction = card_data
-                        st.session_state.source_url = None
-                        st.success(f"Extracted: {card_data.name}")
-                    except ExtractionError as e:
-                        st.error(f"Failed: {e}")
-
-    # Show extraction result
-    if st.session_state.last_extraction:
-        st.divider()
-        render_extraction_result()
-
-    st.divider()
-
     # Import from spreadsheet (collapsed by default)
     with st.expander("Import from Spreadsheet"):
         st.markdown("""
@@ -527,6 +477,11 @@ def render_add_card_section():
         - Any column names or layout
 
         We'll extract card names, fees, SUB status, benefits, and usage tracking.
+        """)
+
+        st.warning("""
+        ⚠️ **Privacy Notice**: Do not include sensitive information like card numbers, CVV, or full account numbers in your spreadsheet.
+        While we don't store this data, it may be sent to our AI service for parsing. Only include card names, fees, dates, and benefit information.
         """)
 
         st.divider()
@@ -749,6 +704,73 @@ def render_add_card_section():
                             import traceback
                             with st.expander("Error details"):
                                 st.code(traceback.format_exc())
+
+    st.divider()
+
+    # Advanced extraction (collapsed by default)
+    with st.expander("Advanced: Extract card details from URL or Text"):
+        st.markdown("""
+        **Use AI to extract card information from online sources**
+
+        This feature can automatically read card details from:
+        - Credit card guide websites (e.g., US Credit Card Guide, The Points Guy)
+        - Bank card pages with terms and benefits
+        - Card comparison sites
+        - Copied text from any source with card information
+
+        Perfect for quickly adding cards that aren't in our library yet.
+        """)
+
+        st.divider()
+
+        tab1, tab2 = st.tabs(["From URL", "From Text"])
+
+        with tab1:
+            st.caption("Paste a URL to a card's information page")
+            url_col1, url_col2 = st.columns([4, 1])
+            with url_col1:
+                url_input = st.text_input(
+                    "URL",
+                    placeholder="https://www.uscreditcardguide.com/...",
+                    label_visibility="collapsed",
+                    key="extract_url_input"
+                )
+            with url_col2:
+                extract_url_btn = st.button("Extract", type="secondary", use_container_width=True, key="extract_url_btn")
+
+            if extract_url_btn and url_input:
+                with st.spinner("Extracting card details from URL..."):
+                    try:
+                        card_data = extract_from_url(url_input)
+                        st.session_state.last_extraction = card_data
+                        st.session_state.source_url = url_input
+                        st.success(f"Extracted: {card_data.name}")
+                    except (FetchError, ExtractionError) as e:
+                        st.error(f"Failed: {e}")
+
+        with tab2:
+            st.caption("Paste any text containing card details (terms, benefits, etc.)")
+            raw_text = st.text_area(
+                "Paste card info",
+                height=150,
+                placeholder="Paste card terms, benefits page content, or any text about the card...",
+                key="extract_text_input",
+            )
+
+            if st.button("Extract", key="extract_text_btn", type="secondary", disabled=len(raw_text) < 50):
+                with st.spinner("Extracting card details from text..."):
+                    try:
+                        card_data = extract_from_text(raw_text)
+                        st.session_state.last_extraction = card_data
+                        st.session_state.source_url = None
+                        st.success(f"Extracted: {card_data.name}")
+                    except ExtractionError as e:
+                        st.error(f"Failed: {e}")
+
+    # Show extraction result
+    if st.session_state.last_extraction:
+        st.divider()
+        render_extraction_result()
 
 
 def render_extraction_result():
@@ -2119,16 +2141,20 @@ def render_five_twenty_four_tab():
         **The Chase 5/24 Rule**: Chase will deny your application if you've opened **5 or more personal credit cards
         from ANY issuer** in the past 24 months.
 
-        **What counts:**
-        - Personal credit cards from any bank
+        **What counts toward 5/24:**
+        - **Personal credit cards** from any bank (including charge cards like Amex Platinum if they're personal)
         - Authorized user cards (can be removed from credit report)
         - Store cards on major networks (Visa, MC, Amex, Discover)
+        - Any card that appears on your **personal credit report**
 
         **What doesn't count:**
-        - Business cards (EXCEPT Capital One, Discover, TD Bank)
-        - Closed cards (but opening date still matters)
-        - Charge cards (e.g., Amex Platinum)
+        - **Business cards** from most issuers (they don't report to personal credit)
+        - **EXCEPTION**: Capital One, Discover, and TD Bank business cards DO count (they report to personal credit)
+        - Closed cards (but opening date still matters for 24-month window)
         - Denied applications
+
+        **Key principle**: If a card reports on your personal credit report, it counts toward 5/24 - whether it's a
+        charge card or traditional credit card doesn't matter.
 
         **Drop-off timing**: Cards drop off on the **first day of the 25th month** after opening.
         Example: Card opened Jan 15, 2024 → drops off Feb 1, 2026.
