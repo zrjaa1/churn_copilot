@@ -498,6 +498,7 @@ def render_add_card_section():
 
         if import_method == "Google Sheets URL":
             st.info("💡 Make sure your Google Sheet is shared as 'Anyone with the link can view'")
+            st.caption("⚠️ Don't want to make your sheet public? Use 'Upload File' or 'Paste CSV/TSV Data' instead for complete privacy.")
             sheet_url = st.text_input(
                 "Google Sheets URL:",
                 placeholder="https://docs.google.com/spreadsheets/d/...",

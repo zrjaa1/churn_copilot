@@ -2,7 +2,21 @@
 
 This directory contains planning documents, progress reports, and execution logs from the development of ChurnPilot.
 
+## Naming Convention
+
+Session logs follow this format: `YYYY-MM-DD_HHMM_description.md`
+
+Example: `2026-01-18_1930_bug-fixes-and-ux-improvements.md`
+
+This provides:
+- Chronological sorting by date and time
+- Human-readable timestamp at a glance
+- Descriptive summary in filename
+
 ## Files
+
+### Session Logs
+- **2026-01-18_1930_bug-fixes-and-ux-improvements.md** - Today's session: bulk delete, Action Required improvements, deployment fixes
 
 ### Development Progress Reports
 - **GOOD_MORNING.md** - Summary of overnight auto-enrichment implementation (8 iterations)
