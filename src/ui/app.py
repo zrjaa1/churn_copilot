@@ -155,7 +155,7 @@ MAX_INPUT_CHARS = 50000  # Max characters for pasted text
 
 SAMPLE_TEXT = """The Platinum Card from American Express
 
-Annual Fee: $695
+Annual Fee: $895
 
 Welcome Offer: Earn 80,000 Membership Rewards points after you spend $8,000 on eligible purchases on your new Card in your first 6 months of Card Membership.
 
@@ -2225,29 +2225,21 @@ def main():
     # Show welcome message for new users
     cards = st.session_state.storage.get_all_cards()
     if len(cards) == 0:
-        st.markdown("""
-        <div style="padding: 1.2rem; background-color: rgba(33, 195, 84, 0.1); border: 1px solid rgba(33, 195, 84, 0.3); border-radius: 0.5rem; border-left: 4px solid rgba(33, 195, 84, 0.8);">
+        st.info("""
+        👋 **Welcome to ChurnPilot!**
 
-        <div style="font-size: 1.1rem; margin-bottom: 0.5rem;">👋 <strong>Welcome to ChurnPilot!</strong></div>
+        ChurnPilot helps you track credit card signup bonuses, benefits, and deadlines.
 
-        <p style="margin: 0.5rem 0;">ChurnPilot helps you track credit card signup bonuses, benefits, and deadlines.</p>
+        **Quick Start:**
+        1. Switch to the **"Add Card"** tab above to add your first card
+        2. Select from library, extract from URL, or import a spreadsheet
 
-        <p style="margin-top: 1rem; margin-bottom: 0.3rem;"><strong>Quick Start:</strong></p>
-        <ol style="margin-top: 0.3rem;">
-        <li style="margin: 0.3rem 0;">Switch to the <strong style="padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(33, 195, 84, 0.5); background-color: rgba(33, 195, 84, 0.15);">Add Card</strong> tab above to add your first card</li>
-        <li style="margin: 0.3rem 0;">Select from library, extract from URL, or import a spreadsheet</li>
-        </ol>
-
-        <p style="margin-top: 1rem; margin-bottom: 0.3rem;"><strong>What ChurnPilot tracks:</strong></p>
-        <ul style="margin-top: 0.3rem;">
-        <li style="margin: 0.2rem 0;">Benefit usage (Uber credits, hotel credits, etc.)</li>
-        <li style="margin: 0.2rem 0;">Signup bonus deadlines (don't miss out on points!)</li>
-        <li style="margin: 0.2rem 0;">Annual fee dates (call for retention offers in time)</li>
-        <li style="margin: 0.2rem 0;">Chase 5/24 status (know when you can apply for more Chase cards)</li>
-        </ul>
-
-        </div>
-        """, unsafe_allow_html=True)
+        **What ChurnPilot tracks:**
+        - Benefit usage (Uber credits, hotel credits, etc.)
+        - Signup bonus deadlines (don't miss out on points!)
+        - Annual fee dates (call for retention offers in time)
+        - Chase 5/24 status (know when you can apply for more Chase cards)
+        """)
 
     # Four main tabs (reordered: Dashboard → Action Required → Add Card → 5/24 Tracker)
     tab1, tab2, tab3, tab4 = st.tabs(["Dashboard", "Action Required", "Add Card", "5/24 Tracker"])
