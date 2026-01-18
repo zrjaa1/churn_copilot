@@ -174,3 +174,468 @@ streamlit run src/ui/app.py
 
 - Commit messages: `type: description` (e.g., `feat: add SUB deadline parsing`)
 - Types: `feat`, `fix`, `refactor`, `docs`, `test`
+
+---
+
+## Development Workflows
+
+### Feature Development Workflow
+
+**Standard flow for implementing new features:**
+
+1. **Requirements Gathering**
+   - Clarify user needs and expected behavior
+   - Identify deployment context (web/desktop, mobile users)
+   - Document in plan mode for complex features
+
+2. **Implementation**
+   - Start with core logic (framework-agnostic)
+   - Add UI layer last
+   - Commit incrementally with descriptive messages
+
+3. **Verification** (see detailed sections below)
+   - Syntax/import checks
+   - **User-facing testing** (critical - see below)
+   - Deployment context validation
+
+4. **Documentation**
+   - Update docstrings
+   - Add to execution logs if significant
+   - Update README if user-facing
+
+### User-Facing Testing Workflow
+
+**CRITICAL: Always test like a real user, not just verify code compiles.**
+
+This workflow prevents bugs that only appear in real usage:
+
+```bash
+# 1. Start the application
+streamlit run src/ui/app.py
+
+# 2. Open in browser (Streamlit auto-opens, or navigate to http://localhost:8501)
+
+# 3. Test critical user journeys:
+```
+
+**Critical User Journeys to Test:**
+
+1. **Adding Cards**
+   - ✓ Add card from URL (paste URL, click extract)
+   - ✓ Add card from library (select template, enter details)
+   - ✓ Verify card appears in dashboard
+   - ✓ Check tab doesn't unexpectedly switch
+
+2. **Viewing Cards**
+   - ✓ Dashboard loads with all cards
+   - ✓ Cards display correct information
+   - ✓ Filtering works (by issuer, search)
+   - ✓ Sorting works (by date, fee, etc.)
+
+3. **Editing Cards**
+   - ✓ Click edit on a card
+   - ✓ Modify fields
+   - ✓ Save changes
+   - ✓ Verify updates appear
+
+4. **Benefits Tracking**
+   - ✓ Mark credit as used this period
+   - ✓ Verify checkmark appears
+   - ✓ Snooze reminders
+   - ✓ Check Action Required tab updates
+
+5. **Data Persistence** (CRITICAL)
+   - ✓ Add/modify data
+   - ✓ **Close browser completely**
+   - ✓ **Reopen browser and navigate to app**
+   - ✓ **Verify data is still there**
+
+6. **Import/Export**
+   - ✓ Export data (download JSON)
+   - ✓ Clear all data
+   - ✓ Import from JSON
+   - ✓ Verify all cards restored correctly
+
+7. **Edge Cases**
+   - ✓ Test with empty state (no cards)
+   - ✓ Test with many cards (20+)
+   - ✓ Test with missing optional fields
+   - ✓ Test invalid inputs
+
+**Why This Matters:**
+
+Example bugs caught ONLY by user-facing testing:
+- `st.rerun()` causing tab switches (syntax check passed ✓, but UX broken ✗)
+- Data not persisting after browser restart (code compiled ✓, but storage broken ✗)
+- File storage on server won't work for mobile users (logic correct ✓, deployment context wrong ✗)
+
+### Bug Fix Workflow
+
+**When user reports a bug:**
+
+1. **Reproduce**
+   - Follow exact steps user described
+   - Verify bug exists in current code
+   - Document reproduction steps
+
+2. **Diagnose Root Cause**
+   - Read relevant code sections
+   - Check execution logs
+   - Consider deployment context
+   - Don't assume - investigate
+
+3. **Fix with Minimal Changes**
+   - Target the root cause
+   - Avoid scope creep
+   - Don't refactor unrelated code
+   - Keep changes focused
+
+4. **Test the Fix**
+   - Verify bug no longer reproduces
+   - **User-facing testing** (see above)
+   - Check for regressions
+
+5. **Document**
+   - Clear commit message explaining what was wrong
+   - Update execution logs if significant
+   - Add comment if fix is non-obvious
+
+### Iterative Improvement Workflow
+
+**Continuous improvement based on feedback:**
+
+1. **Gather Feedback**
+   - User pain points
+   - Credit card forum discussions
+   - Your own observations during testing
+
+2. **Prioritize**
+   - Critical bugs first
+   - High-impact UX improvements
+   - Nice-to-haves last
+
+3. **Small Iterations**
+   - One improvement at a time
+   - Test after each change
+   - Commit incrementally
+
+4. **Validate**
+   - Get user confirmation
+   - Test with real workflows
+   - Measure impact
+
+5. **Repeat**
+   - Build on learnings
+   - Refine approach
+   - Keep improving
+
+---
+
+## Deployment Context Considerations
+
+**Critical: Storage approach depends on deployment context**
+
+### Web Deployment (Streamlit Cloud, Heroku, etc.)
+
+**Context:**
+- Multiple users accessing same app instance
+- Server filesystem is ephemeral (resets on redeployment)
+- Mobile users can't access server file paths
+- Each user needs isolated data
+
+**Storage Requirements:**
+- ✓ Browser localStorage (client-side)
+- ✗ Server file storage (ephemeral, shared)
+- ✗ File paths like `~/.churnpilot/cards.json` (server-side only)
+
+**Implementation:**
+- Use `WebStorage` class (browser localStorage only)
+- Data stored in user's browser
+- Survives redeployments
+- Works on mobile, desktop, tablet
+- Each user has private data
+
+**Key Files:**
+- `src/core/web_storage.py` - Browser-only storage
+- Uses `streamlit-js-eval` for localStorage access
+- Requires `pyarrow` dependency
+
+### Desktop Deployment (localhost, single user)
+
+**Context:**
+- One user running locally
+- Persistent file system
+- Can use file-based storage
+
+**Storage Options:**
+- ✓ File storage (e.g., `~/.churnpilot/cards.json`)
+- ✓ SQLite database
+- ✓ Can also use localStorage for web-like experience
+
+**Implementation:**
+- Use `CardStorage` class (file-based)
+- Data persists across restarts
+- Easy to backup/migrate
+- Can edit manually
+
+### Common Mistakes
+
+**❌ Wrong: Using file storage for web deployment**
+```python
+# This won't work for mobile users or survive redeployments:
+STORAGE_PATH = Path.home() / '.churnpilot' / 'cards.json'
+```
+
+**✓ Right: Use browser localStorage for web deployment**
+```python
+# Data stored in user's browser, works everywhere:
+localStorage.setItem('churnpilot_cards', JSON.stringify(data))
+```
+
+**❌ Wrong: Assuming server paths work for all users**
+```python
+# Mobile users can't access server filesystem:
+with open('~/.churnpilot/cards.json', 'r') as f:
+    data = json.load(f)
+```
+
+**✓ Right: Consider deployment context**
+```python
+# Check if we're in web or desktop context:
+if is_web_deployment():
+    storage = WebStorage()  # Browser localStorage
+else:
+    storage = CardStorage()  # File-based
+```
+
+---
+
+## Streamlit-Specific Gotchas
+
+**Important considerations when using Streamlit:**
+
+### 1. st.rerun() Resets Tabs
+
+**Problem:**
+- `st.rerun()` reruns entire app from top
+- Streamlit tabs default to first tab
+- No programmatic tab selection available
+
+**Impact:**
+- User adds card in "Add Card" tab → `st.rerun()` → switches to "Dashboard" tab
+- Confusing UX - user has to navigate back
+
+**Solutions:**
+```python
+# ❌ Bad: Forces tab switch
+st.success("Card added!")
+st.rerun()
+
+# ✓ Good: Let user navigate manually
+st.success("✓ Card added!")
+st.info("Switch to Dashboard tab to see your card")
+# No rerun - card will appear when user switches tabs
+```
+
+**Alternative Approaches:**
+- Use query parameters to maintain tab state
+- Use sidebar navigation instead of tabs
+- Minimize `st.rerun()` usage
+
+### 2. Session State vs Persistent Storage
+
+**Streamlit session state:**
+- In-memory only
+- Lost on browser refresh
+- Separate per tab/window
+- Fast access
+
+**Persistent storage (localStorage/files):**
+- Survives browser restarts
+- Shared across tabs (localStorage)
+- Slower access
+- Requires serialization
+
+**Best Practice:**
+```python
+# Use session state as cache
+if "cards_data" not in st.session_state:
+    # Load from persistent storage once
+    st.session_state.cards_data = load_from_storage()
+
+# Work with session state
+cards = st.session_state.cards_data
+
+# Save to persistent storage when changed
+save_to_storage(cards)
+```
+
+### 3. JavaScript Evaluation Timing
+
+**Issue:** `streamlit-js-eval` can have timing issues
+
+```python
+# ❌ Problematic: May return None due to timing
+result = streamlit_js_eval(js="localStorage.getItem('key')")
+
+# ✓ Better: Use Promise with timeout
+js_code = """
+(function() {
+    return new Promise((resolve) => {
+        setTimeout(() => {
+            resolve(localStorage.getItem('key'));
+        }, 100);
+    });
+})()
+"""
+result = streamlit_js_eval(js=js_code, key=f"unique_key_{time.time()}")
+```
+
+**Requirements:**
+- Requires `pyarrow` to be installed
+- Need unique `key` parameter for each call to avoid caching
+- Handle None/null returns gracefully
+
+### 4. Widget State Persistence
+
+**Problem:** Widget values don't persist across reruns unless using `key` parameter
+
+```python
+# ❌ Bad: Value lost on rerun
+card_name = st.text_input("Card Name")
+
+# ✓ Good: Value persists in session state
+card_name = st.text_input("Card Name", key="card_name_input")
+# Access later: st.session_state.card_name_input
+```
+
+---
+
+## Testing Strategy
+
+### Levels of Testing
+
+| Level | What It Tests | When to Use |
+|-------|---------------|-------------|
+| **Unit Tests** | Individual functions, pure logic | Core business logic, utilities |
+| **Integration Tests** | Module interactions | Storage + models, extractor + API |
+| **Syntax Checks** | Code compiles | After every change |
+| **Import Checks** | Dependencies available | After adding imports/deps |
+| **User-Facing Tests** | Real user workflows | **Always before saying "done"** |
+
+### Pre-Commit Checklist
+
+Before committing any feature or fix:
+
+- [ ] **Syntax check passes:** `python -m py_compile <files>`
+- [ ] **Import check passes:** `python -c "import module"`
+- [ ] **App starts:** `streamlit run src/ui/app.py`
+- [ ] **Critical user journeys work** (add card, view, edit, persist)
+- [ ] **No console errors** (check browser console, terminal output)
+- [ ] **Deployment context considered** (web vs desktop)
+- [ ] **Commit message is descriptive**
+
+### Pre-Deployment Checklist
+
+Before sharing with pilot users:
+
+- [ ] **All pre-commit checks pass**
+- [ ] **Test data persistence** (close browser, reopen, verify)
+- [ ] **Test on target platform** (Streamlit Cloud, not just localhost)
+- [ ] **Test on mobile device** (if web deployment)
+- [ ] **Test in incognito mode** (privacy settings)
+- [ ] **Export/import works**
+- [ ] **Dependencies documented** (`requirements.txt` up to date)
+- [ ] **User-facing documentation updated** (if needed)
+
+---
+
+## Common Pitfalls and Solutions
+
+### Pitfall 1: Only Testing Code Compilation
+
+**Symptom:** Code compiles and imports work, but app breaks in real usage
+
+**Example:**
+```python
+# This compiles fine:
+st.success("Card added")
+st.rerun()
+
+# But causes tab switching bug in real usage
+```
+
+**Solution:** Always do user-facing testing (see workflow above)
+
+### Pitfall 2: Wrong Deployment Context
+
+**Symptom:** Works on localhost, breaks in production
+
+**Example:**
+- File storage at `~/.churnpilot/cards.json` works locally
+- Breaks on Streamlit Cloud (ephemeral filesystem)
+- Mobile users can't access it
+
+**Solution:** Design for target deployment from the start
+
+### Pitfall 3: Assuming Browser APIs Just Work
+
+**Symptom:** localStorage code looks correct but data doesn't persist
+
+**Potential Causes:**
+- Missing `pyarrow` dependency
+- Browser privacy settings blocking localStorage
+- JavaScript timing issues with `streamlit-js-eval`
+- Incognito mode restrictions
+- Insufficient localStorage quota
+
+**Solution:**
+- Create diagnostic tools (like `diagnose_storage.py`)
+- Test in multiple browsers
+- Check browser console for errors
+- Handle failures gracefully
+
+### Pitfall 4: Over-Engineering Solutions
+
+**Symptom:** Complex implementation when simple solution exists
+
+**Example:**
+- Created HybridStorage (localStorage + file fallback)
+- File fallback doesn't help web users
+- Simple WebStorage (localStorage only) was sufficient
+
+**Solution:**
+- Start with simplest approach that meets requirements
+- Add complexity only when proven necessary
+- Question assumptions (ask "why do we need this?")
+
+---
+
+## Lessons Learned
+
+### Key Insights from Development
+
+1. **User-facing testing is not optional**
+   - Compilation ≠ working software
+   - Always test like a real user
+   - Close and reopen to test persistence
+
+2. **Deployment context matters immensely**
+   - What works locally may not work in production
+   - Mobile users have different constraints
+   - Server storage ≠ client storage
+
+3. **Simple is better**
+   - Don't add "just in case" features
+   - Solve the actual problem, not hypothetical ones
+   - Easier to add complexity than remove it
+
+4. **Framework quirks require attention**
+   - Streamlit's `st.rerun()` resets state
+   - Session state vs persistent storage
+   - JavaScript eval timing issues
+
+5. **Real user feedback is invaluable**
+   - Users catch what developers miss
+   - Test with real workflows
+   - Listen to pain points
