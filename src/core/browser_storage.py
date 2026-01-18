@@ -13,7 +13,9 @@ import streamlit as st
 from pydantic import BaseModel
 
 from .exceptions import StorageError
-from .models import Card, CardData
+from .models import Card, CardData, SignupBonus
+from .library import CardTemplate
+from .normalize import normalize_issuer, match_to_library_template
 
 
 def _serialize_for_json(obj):
@@ -157,54 +159,120 @@ class BrowserStorage:
         opened_date: date | None = None,
         raw_text: str | None = None,
     ) -> Card:
-        """Add a new card to storage."""
-        cards = self._load_cards()
+        """Add a new card from extracted data.
 
-        # Create card ID
-        card_id = str(uuid.uuid4())
+        Args:
+            card_data: Extracted card data from AI.
+            opened_date: When the card was opened.
+            raw_text: Original text used for extraction.
 
-        # Build card object
+        Returns:
+            The created Card object with generated ID.
+        """
+        # Normalize issuer
+        normalized_issuer = normalize_issuer(card_data.issuer)
+
+        # Try to match to library template
+        template_id = match_to_library_template(card_data.name, normalized_issuer)
+
         card = Card(
-            id=card_id,
+            id=str(uuid.uuid4()),
             name=card_data.name,
-            issuer=card_data.issuer,
+            issuer=normalized_issuer,
             annual_fee=card_data.annual_fee,
             signup_bonus=card_data.signup_bonus,
             credits=card_data.credits,
             opened_date=opened_date,
+            raw_text=raw_text,
+            template_id=template_id,
             created_at=datetime.now(),
-            raw_extraction=raw_text,
         )
 
-        # Serialize and add
+        cards = self._load_cards()
         cards.append(card.model_dump())
         self._save_cards(cards)
 
         return card
 
-    def update_card(self, card_id: str, updates: dict) -> None:
-        """Update an existing card."""
+    def add_card_from_template(
+        self,
+        template: CardTemplate,
+        nickname: str | None = None,
+        opened_date: date | None = None,
+        signup_bonus: SignupBonus | None = None,
+    ) -> Card:
+        """Add a new card from a library template.
+
+        Args:
+            template: Card template from the library.
+            nickname: User-defined nickname for the card.
+            opened_date: When the card was opened.
+            signup_bonus: Optional signup bonus details.
+
+        Returns:
+            The created Card object with generated ID.
+        """
+        card = Card(
+            id=str(uuid.uuid4()),
+            name=template.name,
+            nickname=nickname,
+            issuer=template.issuer,
+            annual_fee=template.annual_fee,
+            signup_bonus=signup_bonus,
+            credits=template.credits,
+            opened_date=opened_date,
+            template_id=template.id,
+            created_at=datetime.now(),
+        )
+
+        cards = self._load_cards()
+        cards.append(card.model_dump())
+        self._save_cards(cards)
+
+        return card
+
+    def update_card(self, card_id: str, updates: dict) -> Card | None:
+        """Update an existing card.
+
+        Args:
+            card_id: Card to update.
+            updates: Dictionary of fields to update.
+
+        Returns:
+            Updated Card object, or None if not found.
+        """
         cards = self._load_cards()
 
-        # Find and update card
-        found = False
+        # Serialize any Pydantic models in the updates to dicts
+        serialized_updates = _serialize_for_json(updates)
+
         for i, card_data in enumerate(cards):
             if card_data.get("id") == card_id:
-                card_data.update(updates)
-                cards[i] = card_data
-                found = True
-                break
+                cards[i].update(serialized_updates)
+                self._save_cards(cards)
+                return Card(**cards[i])
 
-        if not found:
-            raise StorageError(f"Card {card_id} not found")
+        return None
 
-        self._save_cards(cards)
+    def delete_card(self, card_id: str) -> bool:
+        """Delete a card by ID.
 
-    def delete_card(self, card_id: str) -> None:
-        """Delete a card from storage."""
+        Args:
+            card_id: Card to delete.
+
+        Returns:
+            True if deleted, False if not found.
+        """
         cards = self._load_cards()
+        original_len = len(cards)
+
         cards = [c for c in cards if c.get("id") != card_id]
-        self._save_cards(cards)
+
+        if len(cards) < original_len:
+            self._save_cards(cards)
+            return True
+
+        return False
 
     def export_data(self) -> str:
         """Export all data as JSON string."""
