@@ -1716,39 +1716,15 @@ def render_dashboard():
 
     st.divider()
 
-    # Bulk actions row
-    bulk_col1, bulk_col2, bulk_col3 = st.columns([1, 2, 5])
-
-    with bulk_col1:
-        selection_mode = st.checkbox("Select", key="selection_mode", help="Enable multi-select to delete multiple cards")
-
     # Initialize selected cards in session state
     if "selected_cards" not in st.session_state:
         st.session_state.selected_cards = set()
 
-    with bulk_col2:
-        if selection_mode and st.session_state.selected_cards:
-            if st.button(f"Delete {len(st.session_state.selected_cards)} Selected", type="primary", use_container_width=True):
-                st.session_state.confirm_bulk_delete = True
-                st.rerun()
+    # Bulk actions row (selection mode toggle)
+    bulk_col1, bulk_col2 = st.columns([1, 7])
 
-    # Bulk delete confirmation
-    if st.session_state.get("confirm_bulk_delete", False):
-        st.warning(f"⚠️ Delete {len(st.session_state.selected_cards)} cards? This cannot be undone.")
-        confirm_col1, confirm_col2, confirm_col3 = st.columns([1, 1, 4])
-        with confirm_col1:
-            if st.button("Cancel", key="cancel_bulk_delete"):
-                st.session_state.confirm_bulk_delete = False
-                st.rerun()
-        with confirm_col2:
-            if st.button("Delete All", key="confirm_bulk_delete_btn", type="primary"):
-                # Delete all selected cards
-                for card_id in st.session_state.selected_cards:
-                    st.session_state.storage.delete_card(card_id)
-                st.session_state.selected_cards = set()
-                st.session_state.confirm_bulk_delete = False
-                st.success("Cards deleted successfully!")
-                st.rerun()
+    with bulk_col1:
+        selection_mode = st.checkbox("Select", key="selection_mode", help="Enable multi-select to delete multiple cards")
 
     # Clear selection when exiting selection mode
     if not selection_mode and st.session_state.selected_cards:
@@ -1852,9 +1828,46 @@ def render_dashboard():
     elif sort_option == "Annual Fee (Low)":
         filtered_cards = sorted(filtered_cards, key=lambda c: c.annual_fee)
 
-    # Show filter results count
+    # Clean up selection - only keep cards that are currently visible
+    if selection_mode:
+        filtered_card_ids = {c.id for c in filtered_cards}
+        st.session_state.selected_cards = st.session_state.selected_cards.intersection(filtered_card_ids)
+
+    # Show filter results count and bulk delete button
     if len(filtered_cards) != len(cards):
-        st.caption(f"Showing {len(filtered_cards)} of {len(cards)} cards")
+        count_col, action_col = st.columns([6, 2])
+        with count_col:
+            st.caption(f"Showing {len(filtered_cards)} of {len(cards)} cards")
+        with action_col:
+            if selection_mode and st.session_state.selected_cards:
+                if st.button(f"Delete {len(st.session_state.selected_cards)} Selected", type="primary", use_container_width=True, key="bulk_delete_btn"):
+                    st.session_state.confirm_bulk_delete = True
+                    st.rerun()
+    else:
+        if selection_mode and st.session_state.selected_cards:
+            action_col1, action_col2 = st.columns([6, 2])
+            with action_col2:
+                if st.button(f"Delete {len(st.session_state.selected_cards)} Selected", type="primary", use_container_width=True, key="bulk_delete_btn2"):
+                    st.session_state.confirm_bulk_delete = True
+                    st.rerun()
+
+    # Bulk delete confirmation
+    if st.session_state.get("confirm_bulk_delete", False):
+        st.warning(f"⚠️ Delete {len(st.session_state.selected_cards)} cards? This cannot be undone.")
+        confirm_col1, confirm_col2, confirm_col3 = st.columns([1, 1, 4])
+        with confirm_col1:
+            if st.button("Cancel", key="cancel_bulk_delete"):
+                st.session_state.confirm_bulk_delete = False
+                st.rerun()
+        with confirm_col2:
+            if st.button("Delete All", key="confirm_bulk_delete_btn", type="primary"):
+                # Delete all selected cards
+                for card_id in st.session_state.selected_cards:
+                    st.session_state.storage.delete_card(card_id)
+                st.session_state.selected_cards = set()
+                st.session_state.confirm_bulk_delete = False
+                st.success("Cards deleted successfully!")
+                st.rerun()
 
     st.divider()
 
@@ -2149,12 +2162,11 @@ def render_five_twenty_four_tab():
 
         **What doesn't count:**
         - **Business cards** from most issuers (they don't report to personal credit)
-        - **EXCEPTION**: Capital One, Discover, and TD Bank business cards DO count (they report to personal credit)
-        - Closed cards (but opening date still matters for 24-month window)
+          - **EXCEPTION**: Capital One, Discover, and TD Bank business cards DO count (they report to personal credit)
         - Denied applications
 
         **Key principle**: If a card reports on your personal credit report, it counts toward 5/24 - whether it's a
-        charge card or traditional credit card doesn't matter.
+        charge card or traditional credit card doesn't matter, and whether it's open or closed doesn't matter.
 
         **Drop-off timing**: Cards drop off on the **first day of the 25th month** after opening.
         Example: Card opened Jan 15, 2024 → drops off Feb 1, 2026.
