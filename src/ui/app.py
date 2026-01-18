@@ -1214,7 +1214,7 @@ def render_card_item(card, show_issuer_header: bool = True, selection_mode: bool
 
             with select_col:
                 is_selected = st.checkbox(
-                    "",
+                    "Select card",
                     value=card.id in st.session_state.selected_cards,
                     key=f"select_{card.id}",
                     label_visibility="collapsed"

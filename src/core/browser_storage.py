@@ -11,11 +11,15 @@ from datetime import date, datetime
 
 import streamlit as st
 from pydantic import BaseModel
+from streamlit_js_eval import streamlit_js_eval
 
 from .exceptions import StorageError
 from .models import Card, CardData, SignupBonus
 from .library import CardTemplate
 from .normalize import normalize_issuer, match_to_library_template
+
+
+STORAGE_KEY = 'churnpilot_cards'
 
 
 def _serialize_for_json(obj):
@@ -39,54 +43,35 @@ def init_browser_storage():
     """
     if "cards_data" not in st.session_state:
         st.session_state.cards_data = []
+        st.session_state.storage_initialized = False
 
-    # JavaScript to sync with localStorage
-    storage_html = """
-    <script>
-    // Load from localStorage on startup
-    const STORAGE_KEY = 'churnpilot_cards';
+    # Only load from localStorage once per session
+    if not st.session_state.storage_initialized:
+        try:
+            # Read from localStorage using streamlit-js-eval
+            js_code = f"""
+            (function() {{
+                try {{
+                    const data = localStorage.getItem('{STORAGE_KEY}');
+                    if (data) {{
+                        return JSON.parse(data);
+                    }}
+                }} catch (e) {{
+                    console.error('[ChurnPilot] Failed to load from localStorage:', e);
+                }}
+                return null;
+            }})()
+            """
 
-    function loadFromStorage() {
-        try {
-            const data = localStorage.getItem(STORAGE_KEY);
-            if (data) {
-                const cards = JSON.parse(data);
-                console.log('[ChurnPilot] Loaded', cards.length, 'cards from localStorage');
-                return cards;
-            }
-        } catch (e) {
-            console.error('[ChurnPilot] Failed to load from localStorage:', e);
-        }
-        return null;
-    }
+            stored_data = streamlit_js_eval(js=js_code, key="load_storage")
 
-    function saveToStorage(cards) {
-        try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(cards));
-            console.log('[ChurnPilot] Saved', cards.length, 'cards to localStorage');
-        } catch (e) {
-            console.error('[ChurnPilot] Failed to save to localStorage:', e);
-        }
-    }
-
-    // Expose functions globally for Streamlit to call
-    window.churnPilotLoadData = loadFromStorage;
-    window.churnPilotSaveData = saveToStorage;
-
-    // Try to load data immediately
-    const storedData = loadFromStorage();
-    if (storedData) {
-        // Store in a div that Streamlit can read
-        const dataDiv = document.createElement('div');
-        dataDiv.id = 'churnpilot-data';
-        dataDiv.style.display = 'none';
-        dataDiv.textContent = JSON.stringify(storedData);
-        document.body.appendChild(dataDiv);
-    }
-    </script>
-    """
-
-    st.components.v1.html(storage_html, height=0)
+            if stored_data and isinstance(stored_data, list):
+                st.session_state.cards_data = stored_data
+                st.session_state.storage_initialized = True
+        except Exception as e:
+            # If localStorage fails (e.g., in testing), just use empty list
+            st.session_state.cards_data = []
+            st.session_state.storage_initialized = True
 
 
 def save_to_browser(cards_data: list[dict]):
@@ -95,25 +80,27 @@ def save_to_browser(cards_data: list[dict]):
     st.session_state.cards_data = cards_data
 
     # Serialize for JavaScript
-    cards_json = json.dumps(_serialize_for_json(cards_data), separators=(',', ':'))
+    cards_json = json.dumps(_serialize_for_json(cards_data))
 
-    # JavaScript to save
-    save_html = f"""
-    <script>
-    if (window.churnPilotSaveData) {{
-        window.churnPilotSaveData({cards_json});
-    }} else {{
-        // Fallback if function not loaded yet
+    # JavaScript to save to localStorage
+    js_code = f"""
+    (function() {{
         try {{
-            localStorage.setItem('churnpilot_cards', '{cards_json}');
-        }} catch(e) {{
-            console.error('[ChurnPilot] Save failed:', e);
+            localStorage.setItem('{STORAGE_KEY}', '{cards_json.replace("'", "\\'")}');
+            console.log('[ChurnPilot] Saved', JSON.parse('{cards_json.replace("'", "\\'")}').length, 'cards to localStorage');
+            return true;
+        }} catch (e) {{
+            console.error('[ChurnPilot] Failed to save to localStorage:', e);
+            return false;
         }}
-    }}
-    </script>
+    }})()
     """
 
-    st.components.v1.html(save_html, height=0)
+    try:
+        streamlit_js_eval(js=js_code, key=f"save_storage_{len(cards_data)}")
+    except Exception:
+        # If JavaScript eval fails, data is still in session state
+        pass
 
 
 class BrowserStorage:
@@ -141,12 +128,23 @@ class BrowserStorage:
         save_to_browser(cards)
 
     def get_all_cards(self) -> list[Card]:
-        """Get all cards from storage."""
+        """Retrieve all stored cards.
+
+        Returns:
+            List of Card objects.
+        """
         raw_cards = self._load_cards()
-        return [Card(**card_data) for card_data in raw_cards]
+        return [Card.model_validate(c) for c in raw_cards]
 
     def get_card(self, card_id: str) -> Card | None:
-        """Get a specific card by ID."""
+        """Retrieve a single card by ID.
+
+        Args:
+            card_id: Unique card identifier.
+
+        Returns:
+            Card object if found, None otherwise.
+        """
         cards = self._load_cards()
         for card_data in cards:
             if card_data.get("id") == card_id:
@@ -250,7 +248,7 @@ class BrowserStorage:
             if card_data.get("id") == card_id:
                 cards[i].update(serialized_updates)
                 self._save_cards(cards)
-                return Card(**cards[i])
+                return Card.model_validate(cards[i])
 
         return None
 
