@@ -1,6 +1,6 @@
 """Core business logic - framework agnostic."""
 
-from .models import Card, SignupBonus, Credit, CardData, CreditUsage, RetentionOffer
+from .models import Card, SignupBonus, Credit, CardData, CreditUsage, RetentionOffer, ProductChange
 from .storage import CardStorage
 from .preprocessor import preprocess_text, get_char_reduction
 from .fetcher import fetch_card_page, get_allowed_domains
@@ -31,6 +31,7 @@ __all__ = [
     "CardTemplate",
     "CreditUsage",
     "RetentionOffer",
+    "ProductChange",
     # Storage
     "CardStorage",
     # Extraction pipeline (main API)

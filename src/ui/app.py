@@ -621,6 +621,69 @@ def render_card_edit_form(card, editing_key: str):
                 else:
                     st.error("Please enter offer details")
 
+        # Product Change History section
+        st.markdown("**Product Change History**")
+        if card.product_change_history:
+            for i, pc in enumerate(card.product_change_history):
+                st.caption(f"{pc.date_changed}: {pc.from_product} → {pc.to_product}")
+                if pc.reason:
+                    st.caption(f"   Reason: {pc.reason}")
+                if pc.notes:
+                    st.caption(f"   Notes: {pc.notes}")
+        else:
+            st.caption("No product changes recorded")
+
+        # Add product change form (in expander)
+        with st.expander("➕ Add Product Change"):
+            pc_col1, pc_col2 = st.columns(2)
+            with pc_col1:
+                pc_date = st.date_input(
+                    "Date Changed",
+                    value=date.today(),
+                    key=f"pc_date_{card.id}",
+                )
+                pc_from = st.text_input(
+                    "From Product",
+                    value=card.name,
+                    key=f"pc_from_{card.id}",
+                    help="Original card name (pre-filled with current card)"
+                )
+                pc_to = st.text_input(
+                    "To Product",
+                    placeholder="e.g., Chase Freedom Unlimited",
+                    key=f"pc_to_{card.id}",
+                    help="New card name after product change"
+                )
+            with pc_col2:
+                pc_reason = st.selectbox(
+                    "Reason",
+                    options=["Avoid annual fee", "Upgrade for SUB", "Better rewards category", "Other"],
+                    key=f"pc_reason_{card.id}",
+                )
+                pc_notes = st.text_input(
+                    "Notes (optional)",
+                    placeholder="e.g., Called retention line first",
+                    key=f"pc_notes_{card.id}",
+                )
+
+            if st.button("Add Product Change", key=f"add_pc_{card.id}"):
+                if pc_from and pc_to:
+                    # Add to product_change_history list
+                    from src.core import ProductChange
+                    new_pc = ProductChange(
+                        date_changed=pc_date,
+                        from_product=pc_from,
+                        to_product=pc_to,
+                        reason=pc_reason if pc_reason != "Other" else None,
+                        notes=pc_notes if pc_notes else None,
+                    )
+                    updated_history = list(card.product_change_history) + [new_pc]
+                    st.session_state.storage.update_card(card.id, {"product_change_history": updated_history})
+                    st.success("Product change recorded!")
+                    st.rerun()
+                else:
+                    st.error("Please enter both from and to product names")
+
         # Save/Cancel buttons
         btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 4])
 

@@ -56,6 +56,19 @@ class RetentionOffer(BaseModel):
     notes: str | None = Field(default=None, description="Additional notes")
 
 
+class ProductChange(BaseModel):
+    """Tracks a product change (upgrade/downgrade) for a card."""
+
+    date_changed: date = Field(..., description="Date of product change")
+    from_product: str = Field(..., description="Original card name")
+    to_product: str = Field(..., description="New card name after change")
+    reason: str | None = Field(
+        default=None,
+        description="Reason for change (e.g., 'Avoid annual fee', 'Upgrade for SUB')"
+    )
+    notes: str | None = Field(default=None, description="Additional notes")
+
+
 class Card(BaseModel):
     """A credit card with all tracked information."""
 
@@ -103,6 +116,10 @@ class Card(BaseModel):
     retention_offers: list[RetentionOffer] = Field(
         default_factory=list,
         description="History of retention offers received"
+    )
+    product_change_history: list[ProductChange] = Field(
+        default_factory=list,
+        description="History of product changes (upgrades/downgrades)"
     )
 
 
