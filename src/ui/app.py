@@ -512,6 +512,244 @@ def render_add_card_section():
         st.divider()
         render_extraction_result()
 
+    st.divider()
+
+    # Import from spreadsheet (collapsed by default)
+    with st.expander("Import from Spreadsheet"):
+        st.markdown("""
+        **Import your existing credit card tracking spreadsheet!**
+
+        ChurnPilot uses AI to understand your spreadsheet format automatically - works with:
+        - Google Sheets
+        - Excel files
+        - CSV files
+        - Any language (English, Chinese, etc.)
+        - Any column names or layout
+
+        We'll extract card names, fees, SUB status, benefits, and usage tracking.
+        """)
+
+        st.divider()
+
+        # Import method selection
+        import_method = st.radio(
+            "Choose import method:",
+            ["Paste CSV/TSV Data", "Upload File", "Google Sheets URL"],
+            horizontal=True,
+            key="import_method_radio"
+        )
+
+        spreadsheet_data = None
+
+        if import_method == "Paste CSV/TSV Data":
+            st.info("💡 Copy your spreadsheet data (select all cells, Ctrl+C) and paste here.")
+            spreadsheet_data = st.text_area(
+                "Paste your spreadsheet data:",
+                height=200,
+                placeholder="Paste your spreadsheet data here...\nInclude column headers in the first row.",
+                key="import_text_area"
+            )
+
+        elif import_method == "Upload File":
+            uploaded_file = st.file_uploader(
+                "Upload CSV or Excel file",
+                type=["csv", "xlsx", "xls", "tsv"],
+                help="Upload your credit card tracking file",
+                key="import_file_uploader"
+            )
+            if uploaded_file:
+                try:
+                    if uploaded_file.name.endswith(('.xlsx', '.xls')):
+                        try:
+                            import pandas as pd
+                        except ImportError:
+                            st.error("📦 Missing dependency: pandas is required for Excel files.")
+                            st.info("Run: `pip install pandas openpyxl`")
+                            return
+
+                        try:
+                            df = pd.read_excel(uploaded_file)
+                            spreadsheet_data = df.to_csv(sep='\t', index=False)
+                        except ImportError as ie:
+                            if 'openpyxl' in str(ie):
+                                st.error("📦 Missing dependency: openpyxl is required for Excel files.")
+                                st.info("Run: `pip install openpyxl`")
+                            else:
+                                st.error(f"Failed to read Excel file: {ie}")
+                            return
+                    else:
+                        spreadsheet_data = uploaded_file.getvalue().decode('utf-8')
+                    st.success(f"Loaded {uploaded_file.name}")
+                except Exception as e:
+                    st.error(f"Failed to read file: {e}")
+
+        elif import_method == "Google Sheets URL":
+            st.info("💡 Make sure your Google Sheet is shared as 'Anyone with the link can view'")
+            sheet_url = st.text_input(
+                "Google Sheets URL:",
+                placeholder="https://docs.google.com/spreadsheets/d/...",
+                key="import_sheet_url"
+            )
+            if sheet_url and st.button("Fetch from Google Sheets", key="import_fetch_sheets"):
+                try:
+                    import re
+                    # Extract sheet ID and gid
+                    sheet_id_match = re.search(r'/d/([a-zA-Z0-9-_]+)', sheet_url)
+                    gid_match = re.search(r'[#&]gid=(\d+)', sheet_url)
+
+                    if sheet_id_match:
+                        sheet_id = sheet_id_match.group(1)
+                        gid = gid_match.group(1) if gid_match else "0"
+
+                        # Build export URL
+                        export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=tsv&gid={gid}"
+
+                        # Fetch the data
+                        import urllib.request
+                        with urllib.request.urlopen(export_url) as response:
+                            spreadsheet_data = response.read().decode('utf-8')
+
+                        st.success("✓ Fetched spreadsheet data!")
+                    else:
+                        st.error("Invalid Google Sheets URL format")
+                except Exception as e:
+                    st.error(f"Failed to fetch: {e}")
+
+        # Parse and preview
+        if spreadsheet_data and st.button("Parse Spreadsheet", type="primary", key="import_parse_btn"):
+            with st.spinner("🤖 AI is analyzing your spreadsheet..."):
+                try:
+                    from src.core.importer import import_from_csv
+
+                    parsed_cards, errors = import_from_csv(spreadsheet_data, skip_closed=True)
+
+                    # Handle results (best-effort)
+                    if not parsed_cards and errors:
+                        # Complete failure
+                        st.error("❌ Failed to parse any cards")
+                        with st.expander("Error details"):
+                            for error in errors:
+                                st.error(f"• {error}")
+                        return
+
+                    elif not parsed_cards:
+                        # No cards found
+                        st.warning("No cards found. Make sure your spreadsheet has card data and try again.")
+                        return
+
+                    else:
+                        # Partial or complete success
+                        if errors:
+                            # Partial success - some cards failed
+                            st.warning(f"⚠️ Parsed {len(parsed_cards)} cards successfully, but {len(errors)} failed")
+                            with st.expander(f"Show {len(errors)} error(s)"):
+                                for error in errors:
+                                    st.error(f"• {error}")
+                            st.info("✓ You can still import the successfully parsed cards below")
+                        else:
+                            # Complete success
+                            st.success(f"✓ Parsed {len(parsed_cards)} cards successfully!")
+
+                        # Store in session state for preview
+                        st.session_state.parsed_import = parsed_cards
+                        st.session_state.import_errors = errors
+
+                        st.divider()
+                        st.subheader("Preview")
+
+                        for i, card in enumerate(parsed_cards, 1):
+                            # Build title with urgency indicator
+                            title = f"{i}. {card.card_name} - ${card.annual_fee}/yr"
+
+                            # Add urgency badge if SUB is active
+                            if card.sub_reward and not card.sub_achieved:
+                                days_remaining = card.get_days_remaining()
+                                if days_remaining is not None:
+                                    if days_remaining < 0:
+                                        title += " ⚠️ EXPIRED"
+                                    elif days_remaining <= 30:
+                                        title += f" 🔴 {days_remaining} days left"
+                                    elif days_remaining <= 60:
+                                        title += f" 🟡 {days_remaining} days left"
+                                    else:
+                                        title += f" 🟢 {days_remaining} days left"
+
+                            with st.expander(title, expanded=(i <= 3)):
+                                col1, col2 = st.columns(2)
+
+                                with col1:
+                                    st.markdown(f"**Status:** {card.status or 'N/A'}")
+                                    st.markdown(f"**Opened:** {card.opened_date or 'Unknown'}")
+
+                                    if card.sub_reward:
+                                        st.markdown(f"**SUB:** {card.sub_reward}")
+                                        st.markdown(f"- Spend: ${card.sub_spend_requirement}")
+                                        st.markdown(f"- Period: {card.sub_time_period_days} days")
+
+                                        # Show calculated or existing deadline
+                                        deadline = card.calculate_deadline()
+                                        if deadline:
+                                            days_remaining = card.get_days_remaining()
+                                            if days_remaining is not None:
+                                                if days_remaining < 0:
+                                                    st.markdown(f"- Deadline: {deadline} ⚠️ **EXPIRED ({abs(days_remaining)} days ago)**")
+                                                elif days_remaining <= 30:
+                                                    st.markdown(f"- Deadline: {deadline} 🔴 **URGENT ({days_remaining} days left)**")
+                                                elif days_remaining <= 60:
+                                                    st.markdown(f"- Deadline: {deadline} 🟡 **Soon ({days_remaining} days left)**")
+                                                else:
+                                                    st.markdown(f"- Deadline: {deadline} 🟢 ({days_remaining} days left)")
+                                            else:
+                                                st.markdown(f"- Deadline: {deadline}")
+                                        elif card.opened_date and card.sub_time_period_days:
+                                            st.info("💡 Auto-calculated deadline will be set on import")
+
+                                        st.markdown(f"- Achieved: {'✓ Yes' if card.sub_achieved else '○ No'}")
+
+                                    # Show auto-calculated annual fee date
+                                    annual_fee_date = card.calculate_annual_fee_date()
+                                    if annual_fee_date:
+                                        st.markdown(f"**Next Annual Fee:** {annual_fee_date}")
+
+                                with col2:
+                                    if card.benefits:
+                                        st.markdown(f"**Benefits ({len(card.benefits)}):**")
+                                        for benefit in card.benefits:
+                                            status_icon = "✓" if benefit.get("is_used") else "○"
+                                            st.caption(f"{status_icon} ${benefit['amount']} {benefit['name']} ({benefit['frequency']})")
+
+                except Exception as e:
+                    st.error(f"Failed to parse: {e}")
+                    import traceback
+                    with st.expander("Error details"):
+                        st.code(traceback.format_exc())
+
+        # Import button
+        if st.session_state.get("parsed_import"):
+            st.divider()
+
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.info(f"Ready to import {len(st.session_state.parsed_import)} cards")
+            with col2:
+                if st.button("Import All Cards", type="primary", use_container_width=True, key="import_all_btn"):
+                    with st.spinner("Importing cards..."):
+                        try:
+                            from src.core.importer import SpreadsheetImporter
+
+                            importer = SpreadsheetImporter()
+                            imported = importer.import_cards(st.session_state.parsed_import)
+
+                            st.success(f"✓ Successfully imported {len(imported)} cards!")
+                            st.session_state.parsed_import = None
+                            st.balloons()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Import failed: {e}")
+                            import traceback
+                            with st.expander("Error details"):
+                                st.code(traceback.format_exc())
+
 
 def render_extraction_result():
     """Render the extracted card data for review and saving."""
@@ -1566,241 +1804,6 @@ def render_dashboard():
             render_card_item(card, show_issuer_header=True)
 
 
-def render_import_section():
-    """Render the spreadsheet import section."""
-    st.header("Import from Spreadsheet")
-
-    st.markdown("""
-    **Import your existing credit card tracking spreadsheet!**
-
-    ChurnPilot uses AI to understand your spreadsheet format automatically - works with:
-    - Google Sheets
-    - Excel files
-    - CSV files
-    - Any language (English, Chinese, etc.)
-    - Any column names or layout
-
-    We'll extract card names, fees, SUB status, benefits, and usage tracking.
-    """)
-
-    st.divider()
-
-    # Import method selection
-    import_method = st.radio(
-        "Choose import method:",
-        ["Paste CSV/TSV Data", "Upload File", "Google Sheets URL"],
-        horizontal=True
-    )
-
-    spreadsheet_data = None
-
-    if import_method == "Paste CSV/TSV Data":
-        st.info("💡 Copy your spreadsheet data (select all cells, Ctrl+C) and paste here.")
-        spreadsheet_data = st.text_area(
-            "Paste your spreadsheet data:",
-            height=200,
-            placeholder="Paste your spreadsheet data here...\nInclude column headers in the first row."
-        )
-
-    elif import_method == "Upload File":
-        uploaded_file = st.file_uploader(
-            "Upload CSV or Excel file",
-            type=["csv", "xlsx", "xls", "tsv"],
-            help="Upload your credit card tracking file"
-        )
-        if uploaded_file:
-            try:
-                if uploaded_file.name.endswith(('.xlsx', '.xls')):
-                    try:
-                        import pandas as pd
-                    except ImportError:
-                        st.error("📦 Missing dependency: pandas is required for Excel files.")
-                        st.info("Run: `pip install pandas openpyxl`")
-                        return
-
-                    try:
-                        df = pd.read_excel(uploaded_file)
-                        spreadsheet_data = df.to_csv(sep='\t', index=False)
-                    except ImportError as ie:
-                        if 'openpyxl' in str(ie):
-                            st.error("📦 Missing dependency: openpyxl is required for Excel files.")
-                            st.info("Run: `pip install openpyxl`")
-                        else:
-                            st.error(f"Failed to read Excel file: {ie}")
-                        return
-                else:
-                    spreadsheet_data = uploaded_file.getvalue().decode('utf-8')
-                st.success(f"Loaded {uploaded_file.name}")
-            except Exception as e:
-                st.error(f"Failed to read file: {e}")
-
-    elif import_method == "Google Sheets URL":
-        st.info("💡 Make sure your Google Sheet is shared as 'Anyone with the link can view'")
-        sheet_url = st.text_input(
-            "Google Sheets URL:",
-            placeholder="https://docs.google.com/spreadsheets/d/..."
-        )
-        if sheet_url and st.button("Fetch from Google Sheets"):
-            try:
-                import re
-                # Extract sheet ID and gid
-                sheet_id_match = re.search(r'/d/([a-zA-Z0-9-_]+)', sheet_url)
-                gid_match = re.search(r'[#&]gid=(\d+)', sheet_url)
-
-                if sheet_id_match:
-                    sheet_id = sheet_id_match.group(1)
-                    gid = gid_match.group(1) if gid_match else "0"
-
-                    # Build export URL
-                    export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=tsv&gid={gid}"
-
-                    # Fetch the data
-                    import urllib.request
-                    with urllib.request.urlopen(export_url) as response:
-                        spreadsheet_data = response.read().decode('utf-8')
-
-                    st.success("✓ Fetched spreadsheet data!")
-                else:
-                    st.error("Invalid Google Sheets URL format")
-            except Exception as e:
-                st.error(f"Failed to fetch: {e}")
-
-    # Parse and preview
-    if spreadsheet_data and st.button("Parse Spreadsheet", type="primary"):
-        with st.spinner("🤖 AI is analyzing your spreadsheet..."):
-            try:
-                from src.core.importer import import_from_csv
-
-                parsed_cards, errors = import_from_csv(spreadsheet_data, skip_closed=True)
-
-                # Handle results (best-effort)
-                if not parsed_cards and errors:
-                    # Complete failure
-                    st.error("❌ Failed to parse any cards")
-                    with st.expander("Error details"):
-                        for error in errors:
-                            st.error(f"• {error}")
-                    return
-
-                elif not parsed_cards:
-                    # No cards found
-                    st.warning("No cards found. Make sure your spreadsheet has card data and try again.")
-                    return
-
-                else:
-                    # Partial or complete success
-                    if errors:
-                        # Partial success - some cards failed
-                        st.warning(f"⚠️ Parsed {len(parsed_cards)} cards successfully, but {len(errors)} failed")
-                        with st.expander(f"Show {len(errors)} error(s)"):
-                            for error in errors:
-                                st.error(f"• {error}")
-                        st.info("✓ You can still import the successfully parsed cards below")
-                    else:
-                        # Complete success
-                        st.success(f"✓ Parsed {len(parsed_cards)} cards successfully!")
-
-                    # Store in session state for preview
-                    st.session_state.parsed_import = parsed_cards
-                    st.session_state.import_errors = errors
-
-                    st.divider()
-                    st.subheader("Preview")
-
-                    for i, card in enumerate(parsed_cards, 1):
-                        # Build title with urgency indicator
-                        title = f"{i}. {card.card_name} - ${card.annual_fee}/yr"
-
-                        # Add urgency badge if SUB is active
-                        if card.sub_reward and not card.sub_achieved:
-                            days_remaining = card.get_days_remaining()
-                            if days_remaining is not None:
-                                if days_remaining < 0:
-                                    title += " ⚠️ EXPIRED"
-                                elif days_remaining <= 30:
-                                    title += f" 🔴 {days_remaining} days left"
-                                elif days_remaining <= 60:
-                                    title += f" 🟡 {days_remaining} days left"
-                                else:
-                                    title += f" 🟢 {days_remaining} days left"
-
-                        with st.expander(title, expanded=(i <= 3)):
-                            col1, col2 = st.columns(2)
-
-                            with col1:
-                                st.markdown(f"**Status:** {card.status or 'N/A'}")
-                                st.markdown(f"**Opened:** {card.opened_date or 'Unknown'}")
-
-                                if card.sub_reward:
-                                    st.markdown(f"**SUB:** {card.sub_reward}")
-                                    st.markdown(f"- Spend: ${card.sub_spend_requirement}")
-                                    st.markdown(f"- Period: {card.sub_time_period_days} days")
-
-                                    # Show calculated or existing deadline
-                                    deadline = card.calculate_deadline()
-                                    if deadline:
-                                        days_remaining = card.get_days_remaining()
-                                        if days_remaining is not None:
-                                            if days_remaining < 0:
-                                                st.markdown(f"- Deadline: {deadline} ⚠️ **EXPIRED ({abs(days_remaining)} days ago)**")
-                                            elif days_remaining <= 30:
-                                                st.markdown(f"- Deadline: {deadline} 🔴 **URGENT ({days_remaining} days left)**")
-                                            elif days_remaining <= 60:
-                                                st.markdown(f"- Deadline: {deadline} 🟡 **Soon ({days_remaining} days left)**")
-                                            else:
-                                                st.markdown(f"- Deadline: {deadline} 🟢 ({days_remaining} days left)")
-                                        else:
-                                            st.markdown(f"- Deadline: {deadline}")
-                                    elif card.opened_date and card.sub_time_period_days:
-                                        st.info("💡 Auto-calculated deadline will be set on import")
-
-                                    st.markdown(f"- Achieved: {'✓ Yes' if card.sub_achieved else '○ No'}")
-
-                                # Show auto-calculated annual fee date
-                                annual_fee_date = card.calculate_annual_fee_date()
-                                if annual_fee_date:
-                                    st.markdown(f"**Next Annual Fee:** {annual_fee_date}")
-
-                            with col2:
-                                if card.benefits:
-                                    st.markdown(f"**Benefits ({len(card.benefits)}):**")
-                                    for benefit in card.benefits:
-                                        status_icon = "✓" if benefit.get("is_used") else "○"
-                                        st.caption(f"{status_icon} ${benefit['amount']} {benefit['name']} ({benefit['frequency']})")
-
-            except Exception as e:
-                st.error(f"Failed to parse: {e}")
-                import traceback
-                with st.expander("Error details"):
-                    st.code(traceback.format_exc())
-
-    # Import button
-    if st.session_state.get("parsed_import"):
-        st.divider()
-
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.info(f"Ready to import {len(st.session_state.parsed_import)} cards")
-        with col2:
-            if st.button("Import All Cards", type="primary", use_container_width=True):
-                with st.spinner("Importing cards..."):
-                    try:
-                        from src.core.importer import SpreadsheetImporter
-
-                        importer = SpreadsheetImporter()
-                        imported = importer.import_cards(st.session_state.parsed_import)
-
-                        st.success(f"✓ Successfully imported {len(imported)} cards!")
-                        st.session_state.parsed_import = None
-                        st.balloons()
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Import failed: {e}")
-                        import traceback
-                        with st.expander("Error details"):
-                            st.code(traceback.format_exc())
-
-
 def render_action_required_tab():
     """Render the Action Required tab showing urgent items."""
     st.header("Action Required")
@@ -2098,7 +2101,7 @@ def main():
 
         **Quick Start:**
         1. Click **"Add Card"** tab to add your first card
-        2. Or **"Import from Spreadsheet"** if you already track cards elsewhere
+        2. Select from library, extract from URL, or import a spreadsheet
 
         **What ChurnPilot tracks:**
         - Signup bonus deadlines (don't miss out on points!)
@@ -2107,8 +2110,8 @@ def main():
         - Chase 5/24 status (know when you can apply for more Chase cards)
         """)
 
-    # Five main tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Dashboard", "Action Required", "5/24 Tracker", "Add Card", "Import from Spreadsheet"])
+    # Four main tabs (reordered: Dashboard → Action Required → Add Card → 5/24 Tracker)
+    tab1, tab2, tab3, tab4 = st.tabs(["Dashboard", "Action Required", "Add Card", "5/24 Tracker"])
 
     with tab1:
         render_dashboard()
@@ -2117,13 +2120,10 @@ def main():
         render_action_required_tab()
 
     with tab3:
-        render_five_twenty_four_tab()
-
-    with tab4:
         render_add_card_section()
 
-    with tab5:
-        render_import_section()
+    with tab4:
+        render_five_twenty_four_tab()
 
 
 if __name__ == "__main__":
