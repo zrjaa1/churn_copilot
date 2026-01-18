@@ -17,6 +17,7 @@ CUSTOM_CSS = """
         padding: 16px;
         margin-bottom: 12px;
         transition: box-shadow 0.2s ease;
+        color: #262730;
     }
     .card-container:hover {
         box-shadow: 0 4px 12px rgba(0,0,0,0.08);
@@ -44,11 +45,13 @@ CUSTOM_CSS = """
         height: 6px;
         overflow: hidden;
         margin: 4px 0;
+        /* Progress bar - no text content */
     }
     .benefits-progress-fill {
         background: linear-gradient(90deg, #28a745 0%, #20c997 100%);
         height: 100%;
         transition: width 0.3s ease;
+        /* Progress bar fill - no text content */
     }
 
     /* Summary card styling */
