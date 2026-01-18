@@ -17,6 +17,7 @@ from .periods import mark_credit_used
 class ParsedCard(BaseModel):
     """Intermediate representation of a parsed card."""
     card_name: str
+    nickname: Optional[str] = None
     status: Optional[str] = None
     annual_fee: float = 0.0
     opened_date: Optional[date] = None
@@ -138,20 +139,21 @@ Available card templates in our library:
 
 For each card, extract:
 1. **card_name**: The card name (normalize to match our templates if possible)
-2. **status**: Card status (e.g., "Long-term", "Closed", "Active", etc.)
-3. **annual_fee**: Annual fee as a number (0 if free)
-4. **opened_date**: When card was opened (YYYY-MM-DD format)
-5. **sub_reward**: Signup bonus reward text (e.g., "80,000 points", "$500 cash")
-6. **sub_spend_requirement**: Dollar amount to spend for SUB
-7. **sub_time_period_days**: Days to complete SUB (3 months = 90, 6 months = 180)
-8. **sub_deadline**: Actual deadline date if you can calculate it
-9. **sub_achieved**: true if SUB is already earned/completed
-10. **benefits**: Array of benefits with:
+2. **nickname**: User's nickname for the card (e.g., "P2's Card", "My Card", etc.) - optional
+3. **status**: Card status (e.g., "Long-term", "Closed", "Active", etc.)
+4. **annual_fee**: Annual fee as a number (0 if free)
+5. **opened_date**: When card was opened (YYYY-MM-DD format)
+6. **sub_reward**: Signup bonus reward text (e.g., "80,000 points", "$500 cash")
+7. **sub_spend_requirement**: Dollar amount to spend for SUB
+8. **sub_time_period_days**: Days to complete SUB (3 months = 90, 6 months = 180)
+9. **sub_deadline**: Actual deadline date if you can calculate it
+10. **sub_achieved**: true if SUB is already earned/completed
+11. **benefits**: Array of benefits with:
     - name: Benefit name
     - amount: Dollar amount
     - frequency: "monthly", "quarterly", "semi-annually", "annual"
     - is_used: true if marked as used/completed for current period
-11. **notes**: Any important notes
+12. **notes**: Any important notes
 
 **Benefit parsing rules:**
 - Look for TODO/pending sections (unused benefits)
@@ -173,6 +175,7 @@ Output format:
 [
   {{
     "card_name": "Chase Sapphire Preferred",
+    "nickname": "P2's Card",
     "status": "Long-term",
     "annual_fee": 95,
     "opened_date": "2023-03-18",
@@ -326,6 +329,7 @@ Output format:
             card = CardModel(
                 id=str(uuid.uuid4()),
                 name=parsed.card_name,
+                nickname=parsed.nickname,
                 issuer=normalize_issuer(parsed.card_name),
                 annual_fee=parsed.annual_fee,
                 signup_bonus=signup_bonus,
