@@ -4,6 +4,33 @@
 
 ChurnPilot is an AI-powered credit card churning management system. The architecture prioritizes **modularity** to allow UI framework swaps (Streamlit → React) without touching core business logic.
 
+## Permissions
+
+**Full workspace permissions granted for this project:**
+
+Claude has been granted full autonomy within this workspace to:
+- Create, modify, and delete files
+- Run git commands (add, commit, push, etc.)
+- Execute tests and verification scripts
+- Install dependencies via pip
+- Run deployment checks
+- Make architectural decisions for improvements
+- Commit changes with co-authorship attribution
+
+**Scope:** All permissions are limited to this workspace (`C:\Users\JayCh\workspace\churn_copilot\`)
+
+**Safety guardrails:**
+- No destructive git operations without explicit approval (force push, hard reset)
+- No modifications to production deployment secrets
+- All changes committed to git for easy rollback
+- Major architectural changes should be documented in plan mode first
+
+**Autonomous improvement guidelines:**
+- Focus on high-impact user experience improvements
+- Maintain code quality and testing standards
+- Document all decisions for user review
+- Prefer polish over new features when working without user guidance
+
 ## Architecture Principles
 
 ### Separation of Concerns
