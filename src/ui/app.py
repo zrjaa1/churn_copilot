@@ -115,7 +115,8 @@ CUSTOM_CSS = """
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.core import (
-    CardStorage,
+    BrowserStorage,
+    init_browser_storage,
     extract_from_url,
     extract_from_text,
     get_allowed_domains,
@@ -174,8 +175,11 @@ Credits and Benefits:
 
 def init_session_state():
     """Initialize Streamlit session state."""
+    # Initialize browser storage first
+    init_browser_storage()
+
     if "storage" not in st.session_state:
-        st.session_state.storage = CardStorage()
+        st.session_state.storage = BrowserStorage()
     if "prefs_storage" not in st.session_state:
         st.session_state.prefs_storage = PreferencesStorage()
     if "prefs" not in st.session_state:
@@ -1901,7 +1905,7 @@ def render_action_required_tab():
     """Render the Action Required tab showing urgent items."""
     st.header("Action Required")
 
-    storage = CardStorage()
+    storage = BrowserStorage()
     cards = storage.get_all_cards()
 
     if not cards:
