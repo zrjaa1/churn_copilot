@@ -2000,6 +2000,25 @@ def main():
     init_session_state()
     render_sidebar()
 
+    # Show welcome message for new users
+    cards = st.session_state.storage.get_all_cards()
+    if len(cards) == 0:
+        st.info("""
+        👋 **Welcome to ChurnPilot!**
+
+        ChurnPilot helps you track credit card signup bonuses, benefits, and deadlines.
+
+        **Quick Start:**
+        1. Click **"Add Card"** tab to add your first card
+        2. Or **"Import from Spreadsheet"** if you already track cards elsewhere
+
+        **What ChurnPilot tracks:**
+        - Signup bonus deadlines (don't miss out on points!)
+        - Annual fee dates (call for retention offers in time)
+        - Benefit usage (Uber credits, hotel credits, etc.)
+        - Chase 5/24 status (know when you can apply for more Chase cards)
+        """)
+
     # Five main tabs
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["Dashboard", "Action Required", "5/24 Tracker", "Add Card", "Import from Spreadsheet"])
 
