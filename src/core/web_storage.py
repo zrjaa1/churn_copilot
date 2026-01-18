@@ -49,70 +49,45 @@ def init_web_storage():
         st.session_state.cards_data = []
     if "storage_initialized" not in st.session_state:
         st.session_state.storage_initialized = False
-    if "storage_load_attempted" not in st.session_state:
-        st.session_state.storage_load_attempted = False
 
-    # Only try to load once per session, but track if we got actual data
-    if not st.session_state.storage_load_attempted:
-        st.session_state.storage_load_attempted = True
-
+    # Only try to load once per session
+    if not st.session_state.storage_initialized:
         try:
-            # Import here to avoid failure if not installed
             from streamlit_js_eval import streamlit_js_eval
 
-            # Use a more reliable approach with longer timeout
-            # Also distinguish between "no data" and "failed to load"
+            # Use SIMPLE synchronous JavaScript - no Promises
+            # streamlit_js_eval has issues with Promises
             js_code = f"""
             (function() {{
-                return new Promise((resolve) => {{
-                    // Wait a bit for storage to be available
-                    setTimeout(() => {{
-                        try {{
-                            const data = localStorage.getItem('{STORAGE_KEY}');
-                            console.log('[ChurnPilot] Loading from localStorage...');
-                            if (data) {{
-                                const parsed = JSON.parse(data);
-                                console.log('[ChurnPilot] Loaded', parsed.length, 'cards');
-                                resolve({{status: 'loaded', data: parsed}});
-                            }} else {{
-                                console.log('[ChurnPilot] No data in localStorage');
-                                resolve({{status: 'empty', data: null}});
-                            }}
-                        }} catch (e) {{
-                            console.error('[ChurnPilot] Load error:', e);
-                            resolve({{status: 'error', error: e.message}});
-                        }}
-                    }}, 150);  // Slightly longer timeout for reliability
-                }});
+                try {{
+                    var data = localStorage.getItem('{STORAGE_KEY}');
+                    if (data) {{
+                        return JSON.parse(data);
+                    }}
+                    return null;
+                }} catch (e) {{
+                    console.error('[ChurnPilot] Load error:', e);
+                    return null;
+                }}
             }})()
             """
 
-            # Add a unique timestamp to force new evaluation each time
-            import time
-            result = streamlit_js_eval(js=js_code, key=f"load_storage_{int(time.time())}")
+            # Simple key - avoid timestamp that changes on every render
+            result = streamlit_js_eval(js=js_code, key="churnpilot_load_storage")
 
-            if result and isinstance(result, dict):
-                status = result.get('status')
-
-                if status == 'loaded' and result.get('data'):
-                    st.session_state.cards_data = result['data']
-                    st.session_state.storage_initialized = True
-                    st.toast(f"📱 Loaded {len(result['data'])} cards from browser")
-                elif status == 'empty':
-                    # Truly empty localStorage - this is fine
-                    st.session_state.storage_initialized = True
-                    st.info("👋 No saved data - starting fresh")
-                elif status == 'error':
-                    # Error reading localStorage
-                    st.warning(f"⚠️ localStorage error: {result.get('error', 'Unknown')}")
-                    st.session_state.storage_initialized = True
+            if result is not None and isinstance(result, list):
+                st.session_state.cards_data = result
+                st.session_state.storage_initialized = True
+                if len(result) > 0:
+                    st.toast(f"📱 Loaded {len(result)} cards from browser")
             else:
-                # streamlit_js_eval returned None - timing issue
-                # Don't mark as initialized, will retry on next interaction
-                st.warning("⚠️ Still loading... Please refresh if data doesn't appear")
+                # Either no data or js_eval returned None
+                # Mark as initialized to avoid repeated attempts
+                st.session_state.storage_initialized = True
+                # Don't show any message - could be empty storage or timing issue
 
         except ImportError:
-            st.error("❌ streamlit-js-eval not installed. Install it for data persistence:\n\n`pip install streamlit-js-eval pyarrow`")
+            st.error("❌ streamlit-js-eval not installed. Run: `pip install streamlit-js-eval pyarrow`")
             st.session_state.storage_initialized = True
         except Exception as e:
             st.warning(f"⚠️ Could not load from browser storage: {e}")
@@ -122,57 +97,43 @@ def init_web_storage():
 def save_web(cards_data: list[dict]):
     """Save to browser localStorage ONLY.
 
-    This is the correct approach - data stays in user's browser.
+    Uses a fire-and-forget approach for reliability.
+    Session state is always updated for immediate use.
     """
-    # Update session state
+    # ALWAYS update session state first - this ensures the data is available immediately
     st.session_state.cards_data = cards_data
 
     try:
-        from streamlit_js_eval import streamlit_js_eval
-
         # Serialize data
         cards_json = json.dumps(_serialize_for_json(cards_data))
 
         # Escape for JavaScript string
-        cards_json_escaped = cards_json.replace('\\', '\\\\').replace("'", "\\'").replace('\n', '\\n')
+        cards_json_escaped = cards_json.replace('\\', '\\\\').replace("'", "\\'").replace('\n', '\\n').replace('\r', '\\r')
 
-        js_code = f"""
+        # Use st.components.v1.html for fire-and-forget save
+        # This doesn't require a return value, making it more reliable
+        from streamlit.components.v1 import html
+
+        save_script = f"""
+        <script>
         (function() {{
             try {{
-                const dataStr = '{cards_json_escaped}';
+                var dataStr = '{cards_json_escaped}';
                 localStorage.setItem('{STORAGE_KEY}', dataStr);
-
-                // Verify it was saved
-                const saved = localStorage.getItem('{STORAGE_KEY}');
-                if (saved) {{
-                    const parsed = JSON.parse(saved);
-                    console.log('[ChurnPilot] Saved', parsed.length, 'cards');
-                    return {{success: true, count: parsed.length}};
-                }} else {{
-                    console.error('[ChurnPilot] Save verification failed');
-                    return {{success: false, error: 'Verification failed'}};
-                }}
+                console.log('[ChurnPilot] Saved', JSON.parse(dataStr).length, 'cards');
             }} catch (e) {{
                 console.error('[ChurnPilot] Save error:', e);
-                return {{success: false, error: e.message}};
             }}
-        }})()
+        }})();
+        </script>
         """
 
-        # Use unique key each time to avoid caching
-        import time
-        result = streamlit_js_eval(js=js_code, key=f"save_storage_{len(cards_data)}_{int(time.time())}")
+        # Inject the script - it will run silently
+        html(save_script, height=0, width=0)
 
-        if result and result.get('success'):
-            # Success - data saved
-            pass
-        elif result:
-            st.warning(f"⚠️ Save may have failed: {result.get('error')}")
-
-    except ImportError:
-        st.error("❌ Cannot save - streamlit-js-eval not installed")
     except Exception as e:
-        st.error(f"❌ Save failed: {e}")
+        # Log error but don't crash - session state is already updated
+        print(f"[ChurnPilot] localStorage save error: {e}")
 
 
 class WebStorage:
