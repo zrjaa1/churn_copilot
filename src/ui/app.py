@@ -191,6 +191,51 @@ def render_sidebar():
             for issuer, count in sorted(issuers.items(), key=lambda x: -x[1]):
                 st.caption(f"{issuer}: {count}")
 
+            # Portfolio Value Widget
+            st.divider()
+            st.markdown("**Portfolio Value**")
+
+            # Calculate total fees
+            total_fees = sum(c.annual_fee for c in cards)
+
+            # Calculate total annual benefits value
+            total_benefits_value = 0
+            for card in cards:
+                for credit in card.credits:
+                    if credit.frequency == "monthly":
+                        total_benefits_value += credit.amount * 12
+                    elif credit.frequency == "quarterly":
+                        total_benefits_value += credit.amount * 4
+                    elif credit.frequency in ["semi-annual", "semi-annually"]:
+                        total_benefits_value += credit.amount * 2
+                    else:
+                        total_benefits_value += credit.amount
+
+            # Net value
+            net_value = total_benefits_value - total_fees
+
+            # Display metrics
+            st.metric("Annual Fees", f"${total_fees:,.0f}")
+            st.metric("Benefits Value", f"${total_benefits_value:,.0f}")
+
+            if net_value >= 0:
+                st.metric("Net Value", f"${net_value:,.0f}", delta="Positive ROI")
+            else:
+                st.metric("Net Value", f"${net_value:,.0f}", delta="Negative", delta_color="inverse")
+
+            # Utilization info
+            if total_benefits_value > 0:
+                utilization_pct = min(100, (total_benefits_value / max(1, total_fees)) * 100)
+                st.caption(f"Value extraction: {utilization_pct:.0f}% of fees")
+
+            # SUB pending value
+            pending_subs = [
+                c for c in cards
+                if c.signup_bonus and not c.sub_achieved and c.signup_bonus.deadline
+            ]
+            if pending_subs:
+                st.caption(f"+ {len(pending_subs)} pending SUBs")
+
             # 5/24 Status
             st.divider()
             five_24 = calculate_five_twenty_four_status(cards)
