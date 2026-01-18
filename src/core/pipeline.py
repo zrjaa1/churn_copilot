@@ -19,6 +19,7 @@ from anthropic import Anthropic
 from .models import CardData, SignupBonus, Credit
 from .exceptions import ExtractionError
 from .fetcher import fetch_card_page
+from .enrichment import enrich_card_data, get_enrichment_summary
 
 # Load environment variables
 load_dotenv(Path(__file__).parent.parent.parent / ".env")
@@ -88,14 +89,15 @@ def extract_from_url(url: str, timeout: int = 60) -> CardData:
     This is the main entry point for the extraction pipeline:
     1. URL -> Jina Reader (fetches clean Markdown via fetcher module)
     2. Markdown -> Claude (extracts structured data)
-    3. JSON -> CardData (validates and returns)
+    3. CardData -> Auto-enrichment (adds missing credits from library)
+    4. JSON -> CardData (validates and returns)
 
     Args:
         url: URL to extract card data from (must be from allowed domains).
         timeout: HTTP request timeout in seconds.
 
     Returns:
-        CardData object with extracted fields.
+        CardData object with extracted and auto-enriched fields.
 
     Raises:
         FetchError: If URL fetch fails or domain not allowed.
@@ -107,7 +109,15 @@ def extract_from_url(url: str, timeout: int = 60) -> CardData:
     # Step 2: Extract structured data via Claude
     card_data = _extract_with_claude(markdown_content)
 
-    return card_data
+    # Step 3: Auto-enrich with library data (adds missing credits)
+    enriched_data, match_result = enrich_card_data(card_data, min_confidence=0.7)
+
+    # Log enrichment for debugging
+    if match_result.template_id:
+        summary = get_enrichment_summary(card_data, enriched_data, match_result)
+        print(f"[Enrichment] {summary}")
+
+    return enriched_data
 
 
 def _extract_with_claude(content: str, max_content_chars: int = 15000) -> CardData:
@@ -289,7 +299,7 @@ def extract_from_text(text: str) -> CardData:
         text: Raw text content to analyze.
 
     Returns:
-        CardData object with extracted fields.
+        CardData object with extracted and auto-enriched fields.
 
     Raises:
         ExtractionError: If extraction fails.
@@ -297,4 +307,15 @@ def extract_from_text(text: str) -> CardData:
     if not text or not text.strip():
         raise ExtractionError("Empty text provided")
 
-    return _extract_with_claude(text)
+    # Extract data via Claude
+    card_data = _extract_with_claude(text)
+
+    # Auto-enrich with library data (adds missing credits)
+    enriched_data, match_result = enrich_card_data(card_data, min_confidence=0.7)
+
+    # Log enrichment for debugging
+    if match_result.template_id:
+        summary = get_enrichment_summary(card_data, enriched_data, match_result)
+        print(f"[Enrichment] {summary}")
+
+    return enriched_data
