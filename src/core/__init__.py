@@ -2,8 +2,7 @@
 
 from .models import Card, SignupBonus, Credit, CardData, CreditUsage, RetentionOffer, ProductChange
 from .storage import CardStorage
-from .browser_storage import BrowserStorage, init_browser_storage, save_to_browser
-from .hybrid_storage import HybridStorage, init_hybrid_storage, save_hybrid
+from .web_storage import WebStorage, init_web_storage, save_web
 from .preprocessor import preprocess_text, get_char_reduction
 from .fetcher import fetch_card_page, get_allowed_domains
 from .pipeline import extract_from_url, extract_from_text
@@ -58,12 +57,9 @@ __all__ = [
     "ProductChange",
     # Storage
     "CardStorage",
-    "BrowserStorage",
-    "init_browser_storage",
-    "save_to_browser",
-    "HybridStorage",
-    "init_hybrid_storage",
-    "save_hybrid",
+    "WebStorage",
+    "init_web_storage",
+    "save_web",
     # Extraction pipeline (main API)
     "extract_from_url",
     "extract_from_text",
