@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from .models import Card, SignupBonus, Credit, CreditUsage
 from .storage import CardStorage
-from .library import get_all_templates
+from .library import get_all_templates, get_template
 from .normalize import normalize_issuer, match_to_library_template
 from .periods import mark_credit_used
 
@@ -280,6 +280,7 @@ Output format:
             credits = []
             credit_usage = {}
 
+            # First, add credits from parsed benefits
             for benefit in parsed.benefits:
                 credit = Credit(
                     name=benefit["name"],
@@ -296,6 +297,24 @@ Output format:
                         {},
                         date.today()
                     )[benefit["name"]]
+
+            # Enrich with library template credits (if matched)
+            if template_id:
+                template = get_template(template_id)
+                if template:
+                    # Get existing credit names (case-insensitive)
+                    existing_names = {c.name.lower() for c in credits}
+
+                    # Add missing credits from template
+                    credits_added = 0
+                    for template_credit in template.credits:
+                        if template_credit.name.lower() not in existing_names:
+                            credits.append(template_credit.model_copy())
+                            credits_added += 1
+
+                    # Log enrichment
+                    if credits_added > 0:
+                        print(f"[Import Enrichment] {parsed.card_name}: Added {credits_added} credits from library")
 
             # Create card
             from .models import Card as CardModel
