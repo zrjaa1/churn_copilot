@@ -539,6 +539,14 @@ def render_extraction_result():
             if len(card_data.credits) > 5:
                 st.caption(f"... and {len(card_data.credits) - 5} more")
 
+    # Show enrichment info if card was matched to library
+    from src.core import match_to_library_with_confidence
+    match_result = match_to_library_with_confidence(card_data.name, card_data.issuer)
+    if match_result.template_id:
+        st.success(f"✨ Auto-enriched from '{match_result.template.name}' template ({int(match_result.confidence * 100)}% match)")
+        if len(card_data.credits) > 0:
+            st.caption(f"ℹ️ Benefits above were automatically added from our library. Review and save if correct.")
+
     # Save form
     st.markdown("---")
     save_col1, save_col2, save_col3 = st.columns([2, 2, 1])
@@ -905,6 +913,10 @@ def render_card_item(card, show_issuer_header: bool = True):
 
     if unused_benefits > 0 and not is_all_snoozed:
         status_badges.append((f'<span class="badge badge-warning">{unused_benefits} Benefits</span>', 2))
+
+    # Show enrichment badge if card is from library
+    if card.template_id:
+        status_badges.append(('<span class="badge badge-info">✨ Library</span>', 4))
 
     # Sort badges by priority (lower number = higher priority)
     status_badges.sort(key=lambda x: x[1])
