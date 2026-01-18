@@ -115,8 +115,8 @@ CUSTOM_CSS = """
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.core import (
-    BrowserStorage,
-    init_browser_storage,
+    HybridStorage,
+    init_hybrid_storage,
     extract_from_url,
     extract_from_text,
     get_allowed_domains,
@@ -175,11 +175,11 @@ Credits and Benefits:
 
 def init_session_state():
     """Initialize Streamlit session state."""
-    # Initialize browser storage first
-    init_browser_storage()
+    # Initialize hybrid storage (localStorage + file fallback)
+    init_hybrid_storage()
 
     if "storage" not in st.session_state:
-        st.session_state.storage = BrowserStorage()
+        st.session_state.storage = HybridStorage()
     if "prefs_storage" not in st.session_state:
         st.session_state.prefs_storage = PreferencesStorage()
     if "prefs" not in st.session_state:
@@ -454,8 +454,10 @@ def render_add_card_section():
                             opened_date=lib_opened_date,
                             signup_bonus=signup_bonus,
                         )
-                        st.success(f"Added: {card.name}")
-                        st.rerun()
+                        st.success(f"✓ Added: {card.name}")
+                        # Don't st.rerun() - it resets to Dashboard tab
+                        # Card will appear in Dashboard when user switches tabs
+                        st.info("Switch to Dashboard tab to see your card")
                     except StorageError as e:
                         st.error(f"Failed: {e}")
 
@@ -1905,7 +1907,7 @@ def render_action_required_tab():
     """Render the Action Required tab showing urgent items."""
     st.header("Action Required")
 
-    storage = BrowserStorage()
+    storage = HybridStorage()
     cards = storage.get_all_cards()
 
     if not cards:
