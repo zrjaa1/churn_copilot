@@ -28,6 +28,44 @@ class ParsedCard(BaseModel):
     benefits: list[dict] = []  # {name, amount, frequency, is_used}
     notes: Optional[str] = None
 
+    def calculate_deadline(self) -> Optional[date]:
+        """Calculate SUB deadline from opened_date + time_period_days.
+
+        Returns:
+            Calculated deadline date, or None if insufficient data.
+        """
+        if self.opened_date and self.sub_time_period_days and not self.sub_deadline:
+            return self.opened_date + timedelta(days=self.sub_time_period_days)
+        return self.sub_deadline
+
+    def get_days_remaining(self, reference_date: Optional[date] = None) -> Optional[int]:
+        """Calculate days remaining until SUB deadline.
+
+        Args:
+            reference_date: Date to calculate from (defaults to today).
+
+        Returns:
+            Number of days remaining, or None if no deadline available.
+        """
+        deadline = self.calculate_deadline()
+        if not deadline:
+            return None
+
+        ref = reference_date or date.today()
+        delta = deadline - ref
+        return delta.days
+
+    def calculate_annual_fee_date(self) -> Optional[date]:
+        """Calculate next annual fee date from opened_date.
+
+        Returns:
+            Next annual fee date (1 year from opened_date), or None if no opened_date.
+        """
+        if self.opened_date:
+            # Annual fee typically posts 1 year from account opening
+            return date(self.opened_date.year + 1, self.opened_date.month, self.opened_date.day)
+        return None
+
     def normalize(self) -> "ParsedCard":
         """Normalize and clean up parsed data."""
         # Convert None to False for sub_achieved
@@ -40,6 +78,10 @@ class ParsedCard(BaseModel):
 
         # Clean up card name
         self.card_name = self.card_name.strip()
+
+        # Auto-calculate SUB deadline if not provided
+        if not self.sub_deadline and self.opened_date and self.sub_time_period_days:
+            self.sub_deadline = self.calculate_deadline()
 
         return self
 
@@ -249,6 +291,9 @@ Output format:
             from .models import Card as CardModel
             import uuid
 
+            # Calculate annual fee date if we have opened_date
+            annual_fee_date = parsed.calculate_annual_fee_date()
+
             card = CardModel(
                 id=str(uuid.uuid4()),
                 name=parsed.card_name,
@@ -257,6 +302,7 @@ Output format:
                 signup_bonus=signup_bonus,
                 credits=credits,
                 opened_date=parsed.opened_date,
+                annual_fee_date=annual_fee_date,
                 template_id=template_id,
                 created_at=datetime.now(),
                 sub_achieved=parsed.sub_achieved,
