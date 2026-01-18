@@ -123,9 +123,19 @@ def _extract_with_claude(content: str, max_content_chars: int = 15000) -> CardDa
     Raises:
         ExtractionError: If extraction fails.
     """
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    # Get API key (try Streamlit secrets first, then env var)
+    api_key = None
+    try:
+        import streamlit as st
+        api_key = st.secrets.get("ANTHROPIC_API_KEY")
+    except:
+        pass
+
     if not api_key:
-        raise ExtractionError("ANTHROPIC_API_KEY not set")
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+
+    if not api_key:
+        raise ExtractionError("ANTHROPIC_API_KEY not found in Streamlit secrets or environment")
 
     # Truncate content if too long (keep beginning which usually has key info)
     if len(content) > max_content_chars:

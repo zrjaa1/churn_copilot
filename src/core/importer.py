@@ -93,11 +93,21 @@ class SpreadsheetImporter:
         """Initialize importer with Anthropic API key.
 
         Args:
-            api_key: Anthropic API key. If None, reads from ANTHROPIC_API_KEY env var.
+            api_key: Anthropic API key. If None, reads from ANTHROPIC_API_KEY env var or Streamlit secrets.
         """
-        self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+        if api_key:
+            self.api_key = api_key
+        else:
+            # Try Streamlit secrets first (for cloud deployment)
+            try:
+                import streamlit as st
+                self.api_key = st.secrets.get("ANTHROPIC_API_KEY")
+            except:
+                # Fall back to environment variable (for local development)
+                self.api_key = os.getenv("ANTHROPIC_API_KEY")
+
         if not self.api_key:
-            raise ValueError("ANTHROPIC_API_KEY not found in environment")
+            raise ValueError("ANTHROPIC_API_KEY not found in Streamlit secrets or environment")
 
         self.client = anthropic.Anthropic(api_key=self.api_key)
         self.storage = CardStorage()
