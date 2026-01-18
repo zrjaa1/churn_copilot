@@ -200,18 +200,69 @@ Users with existing data in the old file-based storage will need to:
 
 **Note:** Consider adding a migration utility that automatically imports from `data/cards.json` on first run if localStorage is empty.
 
+## Bug Fix - Missing add_card_from_template Method
+
+### Issue Discovered
+After initial implementation, app crashed with:
+```
+AttributeError: 'BrowserStorage' object has no attribute 'add_card_from_template'
+```
+
+### Root Cause
+Initial testing was inadequate:
+- ❌ Only did syntax checks (py_compile) - doesn't catch missing methods
+- ❌ Only did import checks - doesn't verify interface completeness
+- ❌ Never compared CardStorage vs BrowserStorage
+- ❌ Never ran the actual app
+
+### Methods That Were Missing/Wrong
+1. `add_card_from_template()` - completely missing (caused AttributeError)
+2. `update_card()` - wrong return type (None instead of Card | None)
+3. `delete_card()` - wrong return type (None instead of bool)
+4. `add_card()` - missing issuer normalization and template matching
+
+### Fix Applied (Commit f8abdfb)
+- Added `add_card_from_template(template, nickname, opened_date, signup_bonus) -> Card`
+- Fixed `update_card()` return type to `Card | None`
+- Fixed `delete_card()` return type to `bool`
+- Added issuer normalization and template matching to `add_card()`
+- Added imports: SignupBonus, CardTemplate, normalize_issuer, match_to_library_template
+
+### Verification After Fix
+All method signatures now match CardStorage exactly:
+```
+✓ add_card(card_data, opened_date, raw_text) -> Card
+✓ add_card_from_template(template, nickname, opened_date, signup_bonus) -> Card
+✓ update_card(card_id, updates) -> Card | None
+✓ delete_card(card_id) -> bool
+✓ get_all_cards() -> list[Card]
+✓ get_card(card_id) -> Card | None
+✓ export_data() -> str
+✓ import_data(json_data) -> int
+```
+
+### Lesson Learned
+When creating a drop-in replacement:
+1. Read the original class thoroughly first
+2. Verify ALL methods are implemented
+3. Verify ALL signatures match exactly using `inspect.signature()`
+4. Test the actual app, not just syntax/imports
+
 ## Status
 
 ✅ Implementation complete
 ✅ Syntax validation passed
 ✅ Import validation passed
-⏳ Awaiting manual testing
+✅ All methods implemented and verified
+✅ Python cache cleared (to force reload)
+⏳ Awaiting manual testing - **User must restart Streamlit to clear session cache**
 ⏳ Ready for commit
 
-## Commit Message
+## Commits Made
 
+### Commit 1: Initial Implementation
 ```
-feat: Implement browser localStorage for per-user data persistence
+72e6020 - feat: Implement browser localStorage for per-user data persistence
 
 - Add BrowserStorage class as drop-in replacement for CardStorage
 - Store data in browser localStorage instead of server filesystem
@@ -239,3 +290,30 @@ app redeployment?"
 
 Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
 ```
+
+### Commit 2: Bug Fix
+```
+f8abdfb - fix: Add missing add_card_from_template method to BrowserStorage
+
+- Add add_card_from_template() method (was missing, causing AttributeError)
+- Fix update_card() to return Card | None instead of None
+- Fix delete_card() to return bool instead of None
+- Add normalize_issuer and match_to_library_template to add_card()
+- Add imports for SignupBonus, CardTemplate, normalize_issuer, match_to_library_template
+- Ensure BrowserStorage is a complete drop-in replacement for CardStorage
+
+Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
+```
+
+## How to Fix Caching Issue
+
+The error you're seeing is because Streamlit cached the old BrowserStorage instance. To fix:
+
+1. **Stop Streamlit** (Ctrl+C)
+2. **Python cache has been cleared** (I just did this)
+3. **Restart Streamlit:**
+   ```bash
+   streamlit run src/ui/app.py
+   ```
+
+The `st.session_state.storage` object is created when the app first loads. Even though the code has been updated, Streamlit is using the old instance from session state. Restarting forces it to create a new instance with the updated class.
