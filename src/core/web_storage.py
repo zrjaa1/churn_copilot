@@ -50,46 +50,46 @@ def init_web_storage():
     if "storage_initialized" not in st.session_state:
         st.session_state.storage_initialized = False
 
-    # Only try to load once per session
-    if not st.session_state.storage_initialized:
-        try:
-            from streamlit_js_eval import streamlit_js_eval
+    # Always call streamlit_js_eval to keep component in DOM and avoid
+    # Streamlit tab state issues. Only process result on first load.
+    try:
+        from streamlit_js_eval import streamlit_js_eval
 
-            # Use SIMPLE synchronous JavaScript - no Promises
-            # streamlit_js_eval has issues with Promises
-            js_code = f"""
-            (function() {{
-                try {{
-                    var data = localStorage.getItem('{STORAGE_KEY}');
-                    if (data) {{
-                        return JSON.parse(data);
-                    }}
-                    return null;
-                }} catch (e) {{
-                    console.error('[ChurnPilot] Load error:', e);
-                    return null;
+        # Use SIMPLE synchronous JavaScript - no Promises
+        # streamlit_js_eval has issues with Promises
+        js_code = f"""
+        (function() {{
+            try {{
+                var data = localStorage.getItem('{STORAGE_KEY}');
+                if (data) {{
+                    return JSON.parse(data);
                 }}
-            }})()
-            """
+                return null;
+            }} catch (e) {{
+                console.error('[ChurnPilot] Load error:', e);
+                return null;
+            }}
+        }})()
+        """
 
-            # Simple key - avoid timestamp that changes on every render
-            result = streamlit_js_eval(js=js_code, key="churnpilot_load_storage")
+        # Always render the component with static key to maintain consistent state
+        result = streamlit_js_eval(js=js_code, key="churnpilot_load_storage")
 
+        # Only process the result on first load
+        if not st.session_state.storage_initialized:
             if result is not None and isinstance(result, list):
                 st.session_state.cards_data = result
-                st.session_state.storage_initialized = True
                 if len(result) > 0:
                     st.toast(f"📱 Loaded {len(result)} cards from browser")
-            else:
-                # Either no data or js_eval returned None
-                # Mark as initialized to avoid repeated attempts
-                st.session_state.storage_initialized = True
-                # Don't show any message - could be empty storage or timing issue
+            # Mark as initialized regardless of result
+            st.session_state.storage_initialized = True
 
-        except ImportError:
+    except ImportError:
+        if not st.session_state.storage_initialized:
             st.error("❌ streamlit-js-eval not installed. Run: `pip install streamlit-js-eval pyarrow`")
             st.session_state.storage_initialized = True
-        except Exception as e:
+    except Exception as e:
+        if not st.session_state.storage_initialized:
             st.warning(f"⚠️ Could not load from browser storage: {e}")
             st.session_state.storage_initialized = True
 
