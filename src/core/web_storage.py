@@ -69,15 +69,15 @@ def init_web_storage():
             st.session_state.storage_initialized = True
         return
 
-    # Use a unique key per attempt to avoid caching issues
-    attempt = st.session_state.storage_load_attempts
-
+    # IMPORTANT: Use a STABLE key so the component can return its value
+    # on subsequent renders. Changing keys creates new components that
+    # haven't had time to execute their JavaScript.
     try:
-        # Use the library's built-in get_local_storage function
-        result_str = get_local_storage(STORAGE_KEY, component_key=f"churnpilot_load_{attempt}")
+        # Use the library's built-in get_local_storage function with STABLE key
+        result_str = get_local_storage(STORAGE_KEY, component_key="churnpilot_load_stable")
 
         # Debug logging
-        print(f"[ChurnPilot] Load attempt {attempt}: result_str type={type(result_str)}, value={result_str[:100] if result_str else None}...")
+        print(f"[ChurnPilot] Load result: type={type(result_str)}, value={str(result_str)[:100] if result_str else 'None'}...")
 
         # Only process on first successful load
         if not st.session_state.storage_initialized:
@@ -94,18 +94,18 @@ def init_web_storage():
                     st.session_state.cards_data = []
                 st.session_state.storage_initialized = True
             else:
-                # streamlit_js_eval returned None - this is common on first render
-                # Trigger a rerun to try again
+                # streamlit_js_eval returned None - component hasn't executed yet
+                # This is normal on the first render. The component will execute
+                # and the value will be available on the next render.
                 st.session_state.storage_load_attempts += 1
-                print(f"[ChurnPilot] Load returned None, attempt {attempt + 1}/4")
-                if attempt < 3:
-                    # Trigger rerun to retry loading
-                    import time
-                    time.sleep(0.1)  # Small delay to let JS settle
+                attempt = st.session_state.storage_load_attempts
+                print(f"[ChurnPilot] Load returned None, attempt {attempt}/4")
+                if attempt < 4:
+                    # Trigger rerun - the SAME component key will now return its value
                     st.rerun()
                 else:
-                    # Give up after 4 attempts (0, 1, 2, 3)
-                    print("[ChurnPilot] Giving up on loading from localStorage")
+                    # Give up after 4 attempts
+                    print("[ChurnPilot] Giving up on loading from localStorage after 4 attempts")
                     st.session_state.storage_initialized = True
 
     except Exception as e:

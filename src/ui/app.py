@@ -464,6 +464,9 @@ def render_add_card_section():
                         st.toast(f"✓ Added: {card.name}", icon="✅")
                         # Store success for additional confirmation at top of Add Card section
                         st.session_state.card_add_success = card.name
+                        # CRITICAL: Sync to localStorage BEFORE rerun!
+                        # st.rerun() stops execution, so sync at end of main() won't run
+                        sync_to_localstorage()
                         # Rerun to clear form fields
                         st.rerun()
                     except StorageError as e:
@@ -873,6 +876,8 @@ def render_extraction_result():
                 st.toast(f"✓ Added: {card.name}", icon="✅")
                 # Store success for additional confirmation at top of Add Card section
                 st.session_state.card_add_success = card.name
+                # CRITICAL: Sync to localStorage BEFORE rerun!
+                sync_to_localstorage()
                 st.rerun()
             except StorageError as e:
                 st.error(f"Failed: {e}")
@@ -1008,6 +1013,7 @@ def render_card_edit_form(card, editing_key: str):
                     updated_offers = list(card.retention_offers) + [new_offer]
                     st.session_state.storage.update_card(card.id, {"retention_offers": updated_offers})
                     st.success("Retention offer added!")
+                    sync_to_localstorage()
                     st.rerun()
                 else:
                     st.error("Please enter offer details")
@@ -1071,6 +1077,7 @@ def render_card_edit_form(card, editing_key: str):
                     updated_history = list(card.product_change_history) + [new_pc]
                     st.session_state.storage.update_card(card.id, {"product_change_history": updated_history})
                     st.success("Product change recorded!")
+                    sync_to_localstorage()
                     st.rerun()
                 else:
                     st.error("Please enter both from and to product names")
@@ -1132,6 +1139,7 @@ def render_card_edit_form(card, editing_key: str):
 
                 if updates:
                     st.session_state.storage.update_card(card.id, updates)
+                    sync_to_localstorage()
 
                 st.session_state[editing_key] = False
                 st.rerun()
@@ -1293,6 +1301,7 @@ def render_card_item(card, show_issuer_header: bool = True, selection_mode: bool
                 if st.button("Delete", key=f"confirm_del_{card.id}", type="primary"):
                     st.session_state.storage.delete_card(card.id)
                     st.session_state[confirm_key] = False
+                    sync_to_localstorage()
                     st.rerun()
             return
 
@@ -1375,6 +1384,7 @@ def render_card_item(card, show_issuer_header: bool = True, selection_mode: bool
             with sub_col2:
                 if st.button("✓ Complete", key=f"sub_complete_{card.id}", help="Mark signup bonus as achieved", use_container_width=True):
                     st.session_state.storage.update_card(card.id, {"sub_achieved": True})
+                    sync_to_localstorage()
                     st.rerun()
 
         # Show unused benefits indicator (preview row)
@@ -1392,6 +1402,7 @@ def render_card_item(card, show_issuer_header: bool = True, selection_mode: bool
                 if st.button("Dismiss", key=f"snooze_all_{card.id}", help="Snooze reminders for 30 days", use_container_width=True):
                     snooze_until = date.today() + timedelta(days=30)
                     st.session_state.storage.update_card(card.id, {"benefits_reminder_snoozed_until": snooze_until})
+                    sync_to_localstorage()
                     st.rerun()
         elif is_all_snoozed:
             # Show option to unsnooze
@@ -1407,6 +1418,7 @@ def render_card_item(card, show_issuer_header: bool = True, selection_mode: bool
             with unsnooze_col2:
                 if st.button("Restore", key=f"unsnooze_{card.id}", help="Show benefit reminders again", use_container_width=True):
                     st.session_state.storage.update_card(card.id, {"benefits_reminder_snoozed_until": None})
+                    sync_to_localstorage()
                     st.rerun()
 
         # Expanded details (only show when expanded)
@@ -1501,6 +1513,7 @@ def render_card_item(card, show_issuer_header: bool = True, selection_mode: bool
                                 new_usage = mark_credit_unused(credit.name, new_usage)
                             # Save to storage
                             st.session_state.storage.update_card(card.id, {"credit_usage": new_usage})
+                            sync_to_localstorage()
                             st.rerun()
 
                         st.caption(f"↻ Resets: {period_name}")
@@ -1890,6 +1903,7 @@ def render_dashboard():
                 st.session_state.selected_cards = set()
                 st.session_state.confirm_bulk_delete = False
                 st.success("Cards deleted successfully!")
+                sync_to_localstorage()
                 st.rerun()
 
     st.divider()
@@ -2114,6 +2128,7 @@ def render_action_required_tab():
                             date.today()
                         )
                         storage.update_card(credit['card'].id, {"credit_usage": new_usage})
+                        sync_to_localstorage()
                         st.rerun()
 
     # Section 4: Missing data
