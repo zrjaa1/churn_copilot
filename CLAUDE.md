@@ -801,3 +801,61 @@ This means the user wants autonomous, thorough work. Act as a senior engineer wh
 8. Commit with detailed message
 9. Provide summary to user
 ```
+
+---
+
+## Full-Autonomous Mode
+
+**When user activates "full-autonomous mode":**
+
+This mode grants Claude maximum autonomy to iterate and solve problems without waiting for user confirmation. The user trusts Claude to make decisions and deliver working solutions.
+
+### Principles
+
+1. **Be Fully Autonomous**
+   - Do NOT wait for user confirmation on decisions
+   - Run any commands needed in the workspace (git commit allowed, but no push to origin/main)
+   - Make architectural decisions when necessary
+   - Iterate until the problem is truly solved
+   - If hitting quota limits, pause and wait for quota to reset, then continue
+
+2. **Do Not Stop Until Interrupted**
+   - Keep iterating on the problem
+   - Try alternative approaches if one fails
+   - Only stop when the user manually interrupts
+   - If a solution doesn't work, try a different approach
+
+3. **Be User-Driven**
+   - Develop for the user's actual needs
+   - Test like a real user would
+   - Think about the deployment context (web app, multiple users, mobile users)
+   - If you can't test like a user, you can't call it complete
+
+4. **Be Test-Driven and Result-Oriented**
+   - Write tests that verify real user behavior
+   - Test in actual browsers when possible
+   - Automated tests should simulate real user actions
+   - Deliver working solutions, not theoretical ones
+
+### What "Complete" Means in Autonomous Mode
+
+A feature is NOT complete until:
+- It works in actual browser testing
+- Data persists across browser refreshes
+- The user experience is smooth and intuitive
+- Edge cases are handled gracefully
+
+### Alternative Approaches
+
+If the current approach isn't working after multiple iterations:
+- Consider entirely different technical solutions
+- Don't be afraid to rewrite significant portions
+- The goal is working software, not preserving existing code
+- Document why the alternative was chosen
+
+### Commit Guidelines in Autonomous Mode
+
+- Commit frequently with clear messages
+- Each commit should be atomic and reviewable
+- Do NOT push to origin/main without explicit permission
+- Local commits are fine for rollback purposes

@@ -49,8 +49,15 @@ def init_web_storage():
     2. Attempts to load data from localStorage on first run
     3. Sets up the storage_initialized flag to prevent repeated loads
 
-    IMPORTANT: Due to streamlit_js_eval timing, data may not be available
-    on the very first render. The UI should handle this gracefully.
+    ARCHITECTURE NOTE:
+    Due to Streamlit's client-server model, JavaScript component values aren't
+    available until AFTER the first render completes. We use a polling approach:
+    - First few renders: get_local_storage returns None
+    - Later render: JavaScript executes, value becomes available
+    - We load the value into session state and trigger a rerun
+
+    The key insight is that we need MORE retries because Streamlit's component
+    rendering can take several round-trips before the value is available.
     """
     # Initialize session state variables
     if "cards_data" not in st.session_state:
@@ -59,6 +66,8 @@ def init_web_storage():
         st.session_state.storage_initialized = False
     if "storage_load_attempts" not in st.session_state:
         st.session_state.storage_load_attempts = 0
+    if "data_loaded_this_session" not in st.session_state:
+        st.session_state.data_loaded_this_session = False
 
     # Try to load from localStorage
     try:
@@ -67,6 +76,11 @@ def init_web_storage():
         if not st.session_state.storage_initialized:
             st.error("❌ streamlit-js-eval not installed. Run: `pip install streamlit-js-eval pyarrow`")
             st.session_state.storage_initialized = True
+        return
+
+    # If we've already loaded data this session, don't try again
+    if st.session_state.data_loaded_this_session:
+        print(f"[ChurnPilot] Data already loaded this session, skipping (cards={len(st.session_state.cards_data)})")
         return
 
     # IMPORTANT: Use a STABLE key so the component can return its value
@@ -79,45 +93,44 @@ def init_web_storage():
         # Debug logging
         print(f"[ChurnPilot] Load result: type={type(result_str)}, value={str(result_str)[:100] if result_str else 'None'}...")
 
-        # CRITICAL FIX: Always process valid data, even after "giving up"
-        # The streamlit_js_eval component often returns data ONE RENDER AFTER
-        # we've already given up. So we check for data even if initialized,
-        # as long as cards_data is still empty.
-        should_process = (
-            not st.session_state.storage_initialized or
-            (st.session_state.storage_initialized and len(st.session_state.cards_data) == 0)
-        )
-
-        if result_str is not None and should_process:
+        if result_str is not None:
+            # We got data! Load it and mark as loaded.
             try:
                 result = json.loads(result_str) if result_str else []
-                if isinstance(result, list) and len(result) > 0:
-                    # Only update if we got actual data
-                    st.session_state.cards_data = result
-                    print(f"[ChurnPilot] Loaded {len(result)} cards from localStorage")
-                    st.toast(f"📱 Loaded {len(result)} cards from browser")
+                if isinstance(result, list):
+                    if len(result) > 0:
+                        st.session_state.cards_data = result
+                        print(f"[ChurnPilot] Loaded {len(result)} cards from localStorage")
+                        st.toast(f"📱 Loaded {len(result)} cards from browser")
+                    else:
+                        print("[ChurnPilot] localStorage returned empty array")
+                    # Mark as loaded regardless of whether array was empty
+                    st.session_state.data_loaded_this_session = True
                     st.session_state.storage_initialized = True
-                    # CRITICAL: Trigger rerun so Dashboard re-renders with new data
-                    # Without this, data arrives after Dashboard has already rendered empty
-                    st.rerun()
+                    # DON'T call st.rerun() here - the data is already in session state
+                    # The current render will use it. Calling st.rerun() causes timing issues.
             except json.JSONDecodeError as e:
                 print(f"[ChurnPilot] JSON decode error: {e}")
-            st.session_state.storage_initialized = True
-        elif result_str is None and not st.session_state.storage_initialized:
+                st.session_state.storage_initialized = True
+
+        elif not st.session_state.storage_initialized:
             # streamlit_js_eval returned None - component hasn't executed yet
-            # This is normal on the first render. The component will execute
-            # and the value will be available on the next render.
+            # This is normal on the first few renders. Keep polling.
             st.session_state.storage_load_attempts += 1
             attempt = st.session_state.storage_load_attempts
-            print(f"[ChurnPilot] Load returned None, attempt {attempt}/4")
-            if attempt < 4:
-                # Trigger rerun - the SAME component key will now return its value
+            print(f"[ChurnPilot] Load returned None, attempt {attempt}/8")
+
+            if attempt < 8:
+                # More retries - the component needs time to execute
+                # Using a short sleep before rerun can help with timing
+                import time
+                time.sleep(0.1)  # Small delay to let browser process
                 st.rerun()
             else:
-                # Give up retrying, but DON'T mark as fully initialized yet
-                # The component may still return data on the next natural render
-                print("[ChurnPilot] Stopping retries, will check again on next render")
+                # Give up - localStorage is probably empty or unavailable
+                print("[ChurnPilot] Giving up after 8 attempts, assuming no saved data")
                 st.session_state.storage_initialized = True
+                st.session_state.data_loaded_this_session = True  # Prevent further attempts
 
     except Exception as e:
         print(f"[ChurnPilot] Load exception: {e}")
@@ -229,9 +242,26 @@ class WebStorage:
         save_web(cards)
 
     def get_all_cards(self) -> list[Card]:
-        """Retrieve all stored cards."""
+        """Retrieve all stored cards.
+
+        Gracefully handles malformed data by skipping invalid cards.
+        This prevents the entire app from crashing if one card has bad data.
+        """
         raw_cards = self._load_cards()
-        return [Card.model_validate(c) for c in raw_cards]
+        valid_cards = []
+        for i, c in enumerate(raw_cards):
+            try:
+                # Fix common data migration issues
+                if isinstance(c.get("credit_usage"), list):
+                    c["credit_usage"] = {}  # Convert empty list to empty dict
+                if isinstance(c.get("retention_offers"), dict):
+                    c["retention_offers"] = []  # Should be list, not dict
+
+                card = Card.model_validate(c)
+                valid_cards.append(card)
+            except Exception as e:
+                print(f"[ChurnPilot] Skipping invalid card {i}: {e}")
+        return valid_cards
 
     def get_card(self, card_id: str) -> Card | None:
         """Retrieve a single card by ID."""
