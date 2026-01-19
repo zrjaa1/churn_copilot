@@ -79,34 +79,45 @@ def init_web_storage():
         # Debug logging
         print(f"[ChurnPilot] Load result: type={type(result_str)}, value={str(result_str)[:100] if result_str else 'None'}...")
 
-        # Only process on first successful load
-        if not st.session_state.storage_initialized:
-            if result_str is not None:
-                try:
-                    result = json.loads(result_str) if result_str else []
-                    if isinstance(result, list):
-                        st.session_state.cards_data = result
-                        print(f"[ChurnPilot] Loaded {len(result)} cards from localStorage")
-                        if len(result) > 0:
-                            st.toast(f"📱 Loaded {len(result)} cards from browser")
-                except json.JSONDecodeError as e:
-                    print(f"[ChurnPilot] JSON decode error: {e}")
-                    st.session_state.cards_data = []
-                st.session_state.storage_initialized = True
-            else:
-                # streamlit_js_eval returned None - component hasn't executed yet
-                # This is normal on the first render. The component will execute
-                # and the value will be available on the next render.
-                st.session_state.storage_load_attempts += 1
-                attempt = st.session_state.storage_load_attempts
-                print(f"[ChurnPilot] Load returned None, attempt {attempt}/4")
-                if attempt < 4:
-                    # Trigger rerun - the SAME component key will now return its value
-                    st.rerun()
-                else:
-                    # Give up after 4 attempts
-                    print("[ChurnPilot] Giving up on loading from localStorage after 4 attempts")
+        # CRITICAL FIX: Always process valid data, even after "giving up"
+        # The streamlit_js_eval component often returns data ONE RENDER AFTER
+        # we've already given up. So we check for data even if initialized,
+        # as long as cards_data is still empty.
+        should_process = (
+            not st.session_state.storage_initialized or
+            (st.session_state.storage_initialized and len(st.session_state.cards_data) == 0)
+        )
+
+        if result_str is not None and should_process:
+            try:
+                result = json.loads(result_str) if result_str else []
+                if isinstance(result, list) and len(result) > 0:
+                    # Only update if we got actual data
+                    st.session_state.cards_data = result
+                    print(f"[ChurnPilot] Loaded {len(result)} cards from localStorage")
+                    st.toast(f"📱 Loaded {len(result)} cards from browser")
                     st.session_state.storage_initialized = True
+                    # CRITICAL: Trigger rerun so Dashboard re-renders with new data
+                    # Without this, data arrives after Dashboard has already rendered empty
+                    st.rerun()
+            except json.JSONDecodeError as e:
+                print(f"[ChurnPilot] JSON decode error: {e}")
+            st.session_state.storage_initialized = True
+        elif result_str is None and not st.session_state.storage_initialized:
+            # streamlit_js_eval returned None - component hasn't executed yet
+            # This is normal on the first render. The component will execute
+            # and the value will be available on the next render.
+            st.session_state.storage_load_attempts += 1
+            attempt = st.session_state.storage_load_attempts
+            print(f"[ChurnPilot] Load returned None, attempt {attempt}/4")
+            if attempt < 4:
+                # Trigger rerun - the SAME component key will now return its value
+                st.rerun()
+            else:
+                # Give up retrying, but DON'T mark as fully initialized yet
+                # The component may still return data on the next natural render
+                print("[ChurnPilot] Stopping retries, will check again on next render")
+                st.session_state.storage_initialized = True
 
     except Exception as e:
         print(f"[ChurnPilot] Load exception: {e}")
