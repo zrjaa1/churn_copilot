@@ -331,6 +331,11 @@ def render_add_card_section():
     """Render the Add Card interface."""
     st.header("Add Card")
 
+    # Show success message if card was just added
+    if st.session_state.get("card_add_success"):
+        st.success(f"✓ Successfully added: {st.session_state.card_add_success}")
+        st.session_state.card_add_success = None  # Clear after showing
+
     # Quick add from library (primary method)
     st.subheader("Quick Add from Library")
 
@@ -455,9 +460,11 @@ def render_add_card_section():
                             opened_date=lib_opened_date,
                             signup_bonus=signup_bonus,
                         )
-                        # Store success message to show on Dashboard after rerun
-                        st.session_state.card_just_added = card.name
-                        # Rerun to refresh the page - Dashboard will show the new card
+                        # Show immediate success feedback via toast
+                        st.toast(f"✓ Added: {card.name}", icon="✅")
+                        # Store success for additional confirmation at top of Add Card section
+                        st.session_state.card_add_success = card.name
+                        # Rerun to clear form fields
                         st.rerun()
                     except StorageError as e:
                         st.error(f"Failed: {e}")
@@ -862,8 +869,10 @@ def render_extraction_result():
                 if ext_nickname:
                     st.session_state.storage.update_card(card.id, {"nickname": ext_nickname})
                 st.session_state.last_extraction = None
-                # Store success message to show on Dashboard after rerun
-                st.session_state.card_just_added = card.name
+                # Show immediate success feedback via toast
+                st.toast(f"✓ Added: {card.name}", icon="✅")
+                # Store success for additional confirmation at top of Add Card section
+                st.session_state.card_add_success = card.name
                 st.rerun()
             except StorageError as e:
                 st.error(f"Failed: {e}")

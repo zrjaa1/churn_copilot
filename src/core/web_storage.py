@@ -76,6 +76,9 @@ def init_web_storage():
         # Use the library's built-in get_local_storage function
         result_str = get_local_storage(STORAGE_KEY, component_key=f"churnpilot_load_{attempt}")
 
+        # Debug logging
+        print(f"[ChurnPilot] Load attempt {attempt}: result_str type={type(result_str)}, value={result_str[:100] if result_str else None}...")
+
         # Only process on first successful load
         if not st.session_state.storage_initialized:
             if result_str is not None:
@@ -83,22 +86,30 @@ def init_web_storage():
                     result = json.loads(result_str) if result_str else []
                     if isinstance(result, list):
                         st.session_state.cards_data = result
+                        print(f"[ChurnPilot] Loaded {len(result)} cards from localStorage")
                         if len(result) > 0:
                             st.toast(f"📱 Loaded {len(result)} cards from browser")
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as e:
+                    print(f"[ChurnPilot] JSON decode error: {e}")
                     st.session_state.cards_data = []
                 st.session_state.storage_initialized = True
             else:
-                # streamlit_js_eval returned None - try again on next rerun
+                # streamlit_js_eval returned None - this is common on first render
+                # Trigger a rerun to try again
                 st.session_state.storage_load_attempts += 1
+                print(f"[ChurnPilot] Load returned None, attempt {attempt + 1}/4")
                 if attempt < 3:
-                    # Silently retry up to 3 times
-                    pass
+                    # Trigger rerun to retry loading
+                    import time
+                    time.sleep(0.1)  # Small delay to let JS settle
+                    st.rerun()
                 else:
-                    # Give up after 3 attempts
+                    # Give up after 4 attempts (0, 1, 2, 3)
+                    print("[ChurnPilot] Giving up on loading from localStorage")
                     st.session_state.storage_initialized = True
 
     except Exception as e:
+        print(f"[ChurnPilot] Load exception: {e}")
         if not st.session_state.storage_initialized:
             st.warning(f"⚠️ Could not load from browser storage: {e}")
             st.session_state.storage_initialized = True
