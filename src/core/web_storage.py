@@ -183,18 +183,17 @@ def sync_to_localstorage():
     Call this at the END of the main app render, AFTER all reruns are complete.
     This ensures the JavaScript has time to execute before any page reload.
 
-    IMPORTANT: Only syncs if:
-    1. Storage has been successfully initialized (we've loaded from localStorage)
-    2. Data has been modified since last sync (_cards_need_sync flag)
-
-    This prevents overwriting localStorage with empty data on page load.
+    Sync conditions:
+    - If _cards_need_sync is True: ALWAYS sync (user modified data)
+    - If storage_initialized is False: DON'T sync (might overwrite with empty)
     """
-    # Only sync if storage is initialized AND data needs syncing
-    if (st.session_state.get("storage_initialized", False) and
-            st.session_state.get("_cards_need_sync", False)):
+    # If data was modified, ALWAYS sync regardless of initialization status
+    # This handles the case where st.rerun() was called after adding a card
+    if st.session_state.get("_cards_need_sync", False):
         if "cards_data" in st.session_state:
             save_to_localstorage(st.session_state.cards_data)
             st.session_state._cards_need_sync = False
+            print(f"[ChurnPilot] Synced {len(st.session_state.cards_data)} cards to localStorage")
 
 
 class WebStorage:
