@@ -143,7 +143,7 @@ CARD_LIBRARY: dict[str, CardTemplate] = {
         credits=[
             Credit(name="Capital One Travel Credit", amount=300.0, frequency="annual", notes="Capital One Travel portal bookings"),
             Credit(name="Global Entry/TSA PreCheck Credit", amount=120.0, frequency="annual", notes="Once every 4 years"),
-            Credit(name="Anniversary Bonus", amount=10000.0, frequency="annual", notes="10,000 miles on each account anniversary"),
+            Credit(name="Anniversary Bonus", amount=100.0, frequency="annual", notes="10,000 miles (~$100 value) on each account anniversary"),
         ],
     ),
     "capital_one_venture": CardTemplate(
