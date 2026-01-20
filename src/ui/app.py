@@ -152,6 +152,45 @@ from src.core.preferences import PreferencesStorage, UserPreferences
 from src.core.exceptions import ExtractionError, StorageError, FetchError
 from datetime import timedelta
 
+# Import UI components
+from src.ui.components import (
+    # Empty states
+    render_empty_state,
+    render_no_results_state,
+    # Loading states
+    render_loading_spinner,
+    render_skeleton_card,
+    # Toast notifications
+    render_toast,
+    show_toast_success,
+    show_toast_error,
+    # Progress indicators
+    render_progress_indicator,
+    ProgressStep,
+    # Collapsible sections
+    render_collapsible_section,
+    render_details_summary,
+    # Status indicators
+    render_status_indicator,
+    render_notification_badge,
+)
+
+# Import component CSS modules
+from src.ui.components.empty_state import EMPTY_STATE_CSS
+from src.ui.components.loading import LOADING_CSS
+from src.ui.components.toast import TOAST_CSS
+from src.ui.components.progress import PROGRESS_CSS
+from src.ui.components.collapsible import COLLAPSIBLE_CSS
+
+# Combined component CSS for injection
+COMPONENT_CSS = f"""
+{EMPTY_STATE_CSS}
+{LOADING_CSS}
+{TOAST_CSS}
+{PROGRESS_CSS}
+{COLLAPSIBLE_CSS}
+"""
+
 # Input validation
 MAX_INPUT_CHARS = 50000  # Max characters for pasted text
 
@@ -1551,27 +1590,28 @@ def render_card_item(card, show_issuer_header: bool = True, selection_mode: bool
 
 def render_empty_dashboard():
     """Render a welcoming empty state when no cards exist."""
-    st.markdown("---")
+    templates = get_all_templates()
 
-    # Centered welcome message
+    # Use the new EmptyState component
+    render_empty_state(
+        icon="credit_card",
+        title="Welcome to ChurnPilot!",
+        description="Start tracking your credit cards to manage benefits and deadlines.",
+        action_text="Add Your First Card",
+        action_key="empty_dashboard_add_card",
+        secondary_text=f"Library includes {len(templates)} popular card templates ready to use."
+    )
+
+    # Quick start guide below the empty state
     col1, col2, col3 = st.columns([1, 2, 1])
-
     with col2:
-        st.markdown("### Welcome to ChurnPilot!")
-        st.write("Start tracking your credit cards to manage benefits and deadlines.")
-
         st.markdown("**Quick start:**")
         st.markdown("1. Switch to the **Add Card** tab above")
-        st.markdown("2. Select a card from the library or paste card details")
+        st.markdown("2. Select from library, extract from URL, or import a spreadsheet")
         st.markdown("3. Track your credits and signup bonus deadlines")
 
-        st.markdown("---")
-
-        # Show available templates count
-        templates = get_all_templates()
-        st.info(f"Library includes {len(templates)} popular card templates ready to use.")
-
         # Popular cards quick suggestions
+        st.divider()
         st.markdown("**Popular cards in library:**")
         popular = ["amex_platinum", "chase_sapphire_reserve", "capital_one_venture_x"]
         for template_id in popular:
@@ -1582,24 +1622,35 @@ def render_empty_dashboard():
 
 def render_empty_filter_results(issuer_filter: str, search_query: str):
     """Render empty state when filters return no results."""
-    st.info("No cards match your filters.")
+    # Build filter description
+    filters_applied = []
+    if issuer_filter != "All Issuers":
+        filters_applied.append(f"issuer '{issuer_filter}'")
+    if search_query:
+        filters_applied.append(f"search '{search_query}'")
 
+    filter_desc = " and ".join(filters_applied) if filters_applied else "current filters"
+
+    # Use the no_results component
+    render_no_results_state(
+        query=search_query or filter_desc,
+        suggestion="Try adjusting your filters or search term."
+    )
+
+    # Clear filter buttons
     col1, col2, col3 = st.columns([1, 1, 3])
 
     with col1:
         if issuer_filter != "All Issuers":
-            if st.button("Clear Issuer Filter"):
+            if st.button("Clear Issuer Filter", key="clear_issuer_filter"):
                 st.session_state["issuer_filter"] = "All Issuers"
                 st.rerun()
 
     with col2:
         if search_query:
-            if st.button("Clear Search"):
+            if st.button("Clear Search", key="clear_search_filter"):
                 st.session_state["search_query"] = ""
                 st.rerun()
-
-    # Helpful suggestions
-    st.caption("Try adjusting your filters or search term.")
 
 
 def export_cards_to_csv(cards):
@@ -2272,8 +2323,9 @@ def main():
         layout="wide",
     )
 
-    # Inject custom CSS
+    # Inject custom CSS (both app-specific and component CSS)
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+    st.markdown(COMPONENT_CSS, unsafe_allow_html=True)
 
     init_session_state()
     render_sidebar()
