@@ -153,6 +153,50 @@ from src.core.database import check_connection
 from datetime import timedelta
 from uuid import UUID
 
+# Import UI components
+from src.ui.components import (
+    # Empty states
+    render_empty_state,
+    render_no_results_state,
+    # Loading states
+    render_loading_spinner,
+    render_skeleton_card,
+    render_full_page_loading,
+    # Toast notifications
+    render_toast,
+    show_toast_success,
+    show_toast_error,
+    show_toast_warning,
+    show_toast_info,
+    # Progress indicators
+    render_progress_indicator,
+    render_mini_progress,
+    render_completion_progress,
+    ProgressStep,
+    # Collapsible sections
+    render_collapsible_section,
+    render_details_summary,
+    # Status indicators
+    render_status_indicator,
+    render_notification_badge,
+)
+
+# Import component CSS modules
+from src.ui.components.empty_state import EMPTY_STATE_CSS
+from src.ui.components.loading import LOADING_CSS
+from src.ui.components.toast import TOAST_CSS
+from src.ui.components.progress import PROGRESS_CSS
+from src.ui.components.collapsible import COLLAPSIBLE_CSS
+
+# Combined component CSS for injection
+COMPONENT_CSS = f"""
+{EMPTY_STATE_CSS}
+{LOADING_CSS}
+{TOAST_CSS}
+{PROGRESS_CSS}
+{COLLAPSIBLE_CSS}
+"""
+
 # Input validation
 MAX_INPUT_CHARS = 50000  # Max characters for pasted text
 
@@ -348,25 +392,39 @@ def render_sidebar():
                 utilization_pct = min(100, (total_benefits_value / max(1, total_fees)) * 100)
                 st.caption(f"Value extraction: {utilization_pct:.0f}% of fees")
 
-            # SUB pending value
+            # SUB pending value with notification badge
             pending_subs = [
                 c for c in cards
                 if c.signup_bonus and not c.sub_achieved and c.signup_bonus.deadline
             ]
             if pending_subs:
-                st.caption(f"+ {len(pending_subs)} pending SUBs")
+                st.markdown(f"**Pending SUBs**")
+                render_notification_badge(
+                    count=len(pending_subs),
+                    variant="warning",
+                )
 
             # 5/24 Status
             st.divider()
             five_24 = calculate_five_twenty_four_status(cards)
             st.markdown("**Chase 5/24 Status**")
 
+            # Use status indicator for 5/24
             if five_24["status"] == "under":
-                st.success(f"{five_24['count']}/5 - Can apply")
+                render_status_indicator(
+                    status="online",
+                    label=f"{five_24['count']}/5 - Can apply",
+                )
             elif five_24["status"] == "at":
-                st.warning(f"{five_24['count']}/5 - At limit")
+                render_status_indicator(
+                    status="busy",
+                    label=f"{five_24['count']}/5 - At limit",
+                )
             else:
-                st.error(f"{five_24['count']}/5 - Over limit")
+                render_status_indicator(
+                    status="offline",
+                    label=f"{five_24['count']}/5 - Over limit",
+                )
 
             if five_24["next_drop_off"]:
                 st.caption(f"Next drop: {five_24['next_drop_off']} ({five_24['days_until_drop']}d)")
@@ -621,6 +679,25 @@ def render_add_card_section():
 
         st.divider()
 
+        # Progress indicator for import flow
+        import_step = 1  # Default: Choose method
+        if st.session_state.get("spreadsheet_data_loaded"):
+            import_step = 2  # Data loaded
+        if st.session_state.get("parsed_import"):
+            import_step = 3  # Parsed and ready
+
+        render_progress_indicator(
+            steps=[
+                ProgressStep(key="step1", label="Choose Source", description="Select import method"),
+                ProgressStep(key="step2", label="Load Data", description="Fetch or upload"),
+                ProgressStep(key="step3", label="Preview & Import", description="Review and confirm"),
+            ],
+            current_step=import_step,
+            key="import_progress",
+        )
+
+        st.divider()
+
         # Import method selection
         import_method = st.radio(
             "Choose import method:",
@@ -658,7 +735,8 @@ def render_add_card_section():
                         with urllib.request.urlopen(export_url) as response:
                             spreadsheet_data = response.read().decode('utf-8')
 
-                        st.success("✓ Fetched spreadsheet data!")
+                        st.session_state.spreadsheet_data_loaded = True
+                        show_toast_success("Spreadsheet data fetched!")
                     else:
                         st.error("Invalid Google Sheets URL format")
                 except Exception as e:
@@ -693,7 +771,8 @@ def render_add_card_section():
                             return
                     else:
                         spreadsheet_data = uploaded_file.getvalue().decode('utf-8')
-                    st.success(f"Loaded {uploaded_file.name}")
+                    st.session_state.spreadsheet_data_loaded = True
+                    show_toast_success(f"Loaded {uploaded_file.name}")
                 except Exception as e:
                     st.error(f"Failed to read file: {e}")
 
@@ -732,14 +811,14 @@ def render_add_card_section():
                         # Partial or complete success
                         if errors:
                             # Partial success - some cards failed
-                            st.warning(f"⚠️ Parsed {len(parsed_cards)} cards successfully, but {len(errors)} failed")
+                            show_toast_warning(f"Parsed {len(parsed_cards)} cards, {len(errors)} failed")
                             with st.expander(f"Show {len(errors)} error(s)"):
                                 for error in errors:
                                     st.error(f"• {error}")
-                            st.info("✓ You can still import the successfully parsed cards below")
+                            st.info("You can still import the successfully parsed cards below")
                         else:
                             # Complete success
-                            st.success(f"✓ Parsed {len(parsed_cards)} cards successfully!")
+                            show_toast_success(f"Parsed {len(parsed_cards)} cards successfully!")
 
                         # Store in session state for preview
                         st.session_state.parsed_import = parsed_cards
@@ -747,6 +826,14 @@ def render_add_card_section():
 
                         st.divider()
                         st.subheader("Preview")
+
+                        # Show completion progress for parsed cards
+                        total_attempted = len(parsed_cards) + len(errors)
+                        render_completion_progress(
+                            completed=len(parsed_cards),
+                            total=total_attempted,
+                            label="Cards ready to import",
+                        )
 
                         for i, card in enumerate(parsed_cards, 1):
                             # Build title with urgency indicator
@@ -831,12 +918,14 @@ def render_add_card_section():
                             importer = SpreadsheetImporter()
                             imported = importer.import_cards(st.session_state.parsed_import)
 
-                            # Save immediately
-                            st.success(f"✓ Successfully imported {len(imported)} cards! Navigate to Dashboard to view.")
+                            # Save immediately (DatabaseStorage auto-persists)
+                            show_toast_success(f"Imported {len(imported)} cards!")
+                            st.success(f"Navigate to Dashboard to view your {len(imported)} imported cards.")
                             st.session_state.parsed_import = None
+                            st.session_state.spreadsheet_data_loaded = False  # Reset progress
                             st.balloons()
                         except Exception as e:
-                            st.error(f"Import failed: {e}")
+                            show_toast_error(f"Import failed: {e}")
                             import traceback
                             with st.expander("Error details"):
                                 st.code(traceback.format_exc())
@@ -1639,27 +1728,27 @@ def render_card_item(card, show_issuer_header: bool = True, selection_mode: bool
 
 def render_empty_dashboard():
     """Render a welcoming empty state when no cards exist."""
-    st.markdown("---")
+    templates = get_all_templates()
 
-    # Centered welcome message
+    # Use the new EmptyState component
+    render_empty_state(
+        illustration="cards",
+        title="Welcome to ChurnPilot!",
+        description=f"Start tracking your credit cards to manage benefits and deadlines. Library includes {len(templates)} popular card templates ready to use.",
+        action_label="Add Your First Card",
+        key="empty_dashboard_add_card",
+    )
+
+    # Quick start guide below the empty state
     col1, col2, col3 = st.columns([1, 2, 1])
-
     with col2:
-        st.markdown("### Welcome to ChurnPilot!")
-        st.write("Start tracking your credit cards to manage benefits and deadlines.")
-
         st.markdown("**Quick start:**")
         st.markdown("1. Switch to the **Add Card** tab above")
-        st.markdown("2. Select a card from the library or paste card details")
+        st.markdown("2. Select from library, extract from URL, or import a spreadsheet")
         st.markdown("3. Track your credits and signup bonus deadlines")
 
-        st.markdown("---")
-
-        # Show available templates count
-        templates = get_all_templates()
-        st.info(f"Library includes {len(templates)} popular card templates ready to use.")
-
         # Popular cards quick suggestions
+        st.divider()
         st.markdown("**Popular cards in library:**")
         popular = ["amex_platinum", "chase_sapphire_reserve", "capital_one_venture_x"]
         for template_id in popular:
@@ -1670,24 +1759,36 @@ def render_empty_dashboard():
 
 def render_empty_filter_results(issuer_filter: str, search_query: str):
     """Render empty state when filters return no results."""
-    st.info("No cards match your filters.")
+    # Build filter description
+    filters_applied = []
+    if issuer_filter != "All Issuers":
+        filters_applied.append(f"issuer '{issuer_filter}'")
+    if search_query:
+        filters_applied.append(f"search '{search_query}'")
 
+    filter_desc = " and ".join(filters_applied) if filters_applied else "current filters"
+
+    # Use the no_results component
+    render_no_results_state(
+        search_term=search_query or filter_desc,
+        key="empty_filter_results",
+    )
+    st.caption("Try adjusting your filters or search term.")
+
+    # Clear filter buttons
     col1, col2, col3 = st.columns([1, 1, 3])
 
     with col1:
         if issuer_filter != "All Issuers":
-            if st.button("Clear Issuer Filter"):
+            if st.button("Clear Issuer Filter", key="clear_issuer_filter"):
                 st.session_state["issuer_filter"] = "All Issuers"
                 st.rerun()
 
     with col2:
         if search_query:
-            if st.button("Clear Search"):
+            if st.button("Clear Search", key="clear_search_filter"):
                 st.session_state["search_query"] = ""
                 st.rerun()
-
-    # Helpful suggestions
-    st.caption("Try adjusting your filters or search term.")
 
 
 def export_cards_to_csv(cards):
@@ -2358,8 +2459,9 @@ def main():
         layout="wide",
     )
 
-    # Inject custom CSS
+    # Inject custom CSS (both app-specific and component CSS)
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+    st.markdown(COMPONENT_CSS, unsafe_allow_html=True)
 
     # Auth check - show login if not authenticated
     if "user_id" not in st.session_state:
