@@ -298,11 +298,10 @@ def render_sidebar():
                 if c.signup_bonus and not c.sub_achieved and c.signup_bonus.deadline
             ]
             if pending_subs:
+                st.markdown(f"**Pending SUBs**")
                 render_notification_badge(
                     count=len(pending_subs),
-                    label="Pending SUBs",
                     variant="warning",
-                    key="sidebar_pending_subs",
                 )
 
             # 5/24 Status
@@ -315,19 +314,16 @@ def render_sidebar():
                 render_status_indicator(
                     status="online",
                     label=f"{five_24['count']}/5 - Can apply",
-                    key="sidebar_524_status",
                 )
             elif five_24["status"] == "at":
                 render_status_indicator(
                     status="busy",
                     label=f"{five_24['count']}/5 - At limit",
-                    key="sidebar_524_status",
                 )
             else:
                 render_status_indicator(
                     status="offline",
                     label=f"{five_24['count']}/5 - Over limit",
-                    key="sidebar_524_status",
                 )
 
             if five_24["next_drop_off"]:
@@ -593,9 +589,9 @@ def render_add_card_section():
 
         render_progress_indicator(
             steps=[
-                ProgressStep(label="Choose Source", description="Select import method"),
-                ProgressStep(label="Load Data", description="Fetch or upload"),
-                ProgressStep(label="Preview & Import", description="Review and confirm"),
+                ProgressStep(key="step1", label="Choose Source", description="Select import method"),
+                ProgressStep(key="step2", label="Load Data", description="Fetch or upload"),
+                ProgressStep(key="step3", label="Preview & Import", description="Review and confirm"),
             ],
             current_step=import_step,
             key="import_progress",
@@ -738,8 +734,6 @@ def render_add_card_section():
                             completed=len(parsed_cards),
                             total=total_attempted,
                             label="Cards ready to import",
-                            show_percentage=True,
-                            key="import_completion_progress",
                         )
 
                         for i, card in enumerate(parsed_cards, 1):
