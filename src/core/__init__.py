@@ -44,6 +44,7 @@ from .enrichment import (
     batch_enrich_cards,
     BatchEnrichmentResult,
 )
+from .demo import get_demo_cards, get_demo_summary
 
 __all__ = [
     # Models
@@ -116,4 +117,7 @@ __all__ = [
     "enrich_existing_card",
     "batch_enrich_cards",
     "BatchEnrichmentResult",
+    # Demo
+    "get_demo_cards",
+    "get_demo_summary",
 ]

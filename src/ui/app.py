@@ -178,6 +178,12 @@ from src.ui.components import (
     # Status indicators
     render_status_indicator,
     render_notification_badge,
+    # Hero / Welcome
+    render_hero,
+    render_demo_banner,
+    # Celebration
+    trigger_confetti,
+    render_sub_completion_celebration,
 )
 
 # Import component CSS modules
@@ -186,6 +192,11 @@ from src.ui.components.loading import LOADING_CSS
 from src.ui.components.toast import TOAST_CSS
 from src.ui.components.progress import PROGRESS_CSS
 from src.ui.components.collapsible import COLLAPSIBLE_CSS
+from src.ui.components.hero import HERO_CSS
+from src.ui.components.celebration import CELEBRATION_CSS
+
+# Import demo data
+from src.core.demo import get_demo_cards, get_demo_summary
 
 # Combined component CSS for injection
 COMPONENT_CSS = f"""
@@ -194,6 +205,8 @@ COMPONENT_CSS = f"""
 {TOAST_CSS}
 {PROGRESS_CSS}
 {COLLAPSIBLE_CSS}
+{HERO_CSS}
+{CELEBRATION_CSS}
 """
 
 # Input validation
@@ -233,6 +246,11 @@ def init_session_state():
         st.session_state.last_extraction = None
     if "text_input" not in st.session_state:
         st.session_state.text_input = ""
+    # Demo mode state
+    if "demo_mode" not in st.session_state:
+        st.session_state.demo_mode = False
+    if "show_welcome" not in st.session_state:
+        st.session_state.show_welcome = True
 
 
 def render_sidebar():
@@ -241,8 +259,11 @@ def render_sidebar():
         st.title("ChurnPilot")
         st.caption("Credit Card Management")
 
-        # Quick stats
-        cards = st.session_state.storage.get_all_cards()
+        # Quick stats - use demo cards if in demo mode
+        if st.session_state.get("demo_mode"):
+            cards = get_demo_cards()
+        else:
+            cards = st.session_state.storage.get_all_cards()
         if cards:
             st.divider()
             st.markdown("**Quick Stats**")
@@ -1494,7 +1515,13 @@ def render_card_item(card, show_issuer_header: bool = True, selection_mode: bool
                 if st.button("✓ Complete", key=f"sub_complete_{card.id}", help="Mark signup bonus as achieved", use_container_width=True):
                     st.session_state.storage.update_card(card.id, {"sub_achieved": True})
                     sync_to_localstorage()
-                    st.toast("✓ Signup bonus marked complete!", icon="🎉")
+                    # Set flag to trigger celebration on next render
+                    st.session_state.celebrate_sub = {
+                        "card_name": card.nickname or display_name,
+                        "points": card.signup_bonus.points_or_cash,
+                        "spend": card.signup_bonus.spend_requirement,
+                    }
+                    st.rerun()
 
         # Show unused benefits indicator (preview row)
         if unused_benefits > 0 and not is_all_snoozed:
@@ -1782,7 +1809,11 @@ def render_dashboard():
     with col_export:
         st.write("")  # Spacing
 
-    cards = st.session_state.storage.get_all_cards()
+    # Use demo cards if in demo mode
+    if st.session_state.get("demo_mode"):
+        cards = get_demo_cards()
+    else:
+        cards = st.session_state.storage.get_all_cards()
 
     if not cards:
         render_empty_dashboard()
@@ -2056,8 +2087,12 @@ def render_action_required_tab():
     """Render the Action Required tab showing urgent items."""
     st.header("Action Required")
 
-    storage = WebStorage()
-    cards = storage.get_all_cards()
+    # Use demo cards if in demo mode
+    if st.session_state.get("demo_mode"):
+        cards = get_demo_cards()
+    else:
+        storage = WebStorage()
+        cards = storage.get_all_cards()
 
     if not cards:
         st.info("No cards yet. Add cards to see action items.")
@@ -2267,7 +2302,11 @@ def render_five_twenty_four_tab():
     """Render the 5/24 tracking tab."""
     st.header("Chase 5/24 Rule Tracker")
 
-    cards = st.session_state.storage.get_all_cards()
+    # Use demo cards if in demo mode
+    if st.session_state.get("demo_mode"):
+        cards = get_demo_cards()
+    else:
+        cards = st.session_state.storage.get_all_cards()
 
     if not cards:
         st.info("Add cards with opened dates to track your 5/24 status.")
@@ -2378,26 +2417,59 @@ def main():
     st.markdown(COMPONENT_CSS, unsafe_allow_html=True)
 
     init_session_state()
+
+    # Get cards - use demo cards if in demo mode
+    if st.session_state.demo_mode:
+        cards = get_demo_cards()
+    else:
+        cards = st.session_state.storage.get_all_cards()
+
+    # Check if this is a first-time user (no cards and should show welcome)
+    is_new_user = len(st.session_state.storage.get_all_cards()) == 0
+
+    # Show demo mode banner if active
+    if st.session_state.demo_mode:
+        if render_demo_banner(
+            exit_callback=lambda: setattr(st.session_state, 'demo_mode', False)
+        ):
+            st.session_state.demo_mode = False
+            st.rerun()
+
+    # Check for SUB completion celebration
+    if st.session_state.get("celebrate_sub"):
+        celebration_data = st.session_state.celebrate_sub
+        render_sub_completion_celebration(
+            card_name=celebration_data["card_name"],
+            points_earned=celebration_data["points"],
+            spend_completed=celebration_data["spend"],
+        )
+        # Clear the flag
+        st.session_state.celebrate_sub = None
+
     render_sidebar()
 
-    # Show welcome message for new users
-    cards = st.session_state.storage.get_all_cards()
-    if len(cards) == 0:
-        st.info("""
-        👋 **Welcome to ChurnPilot!**
+    # Show hero welcome for new users (only when not in demo mode and no cards)
+    if is_new_user and st.session_state.show_welcome and not st.session_state.demo_mode:
+        # Get template count for stats
+        template_count = len(get_all_templates())
 
-        ChurnPilot helps you track credit card signup bonuses, benefits, and deadlines.
+        hero_action = render_hero(
+            show_demo_button=True,
+            demo_callback=lambda: None,  # Handled below
+            add_card_callback=lambda: None,  # Handled below
+            template_count=template_count,
+        )
 
-        **Quick Start:**
-        1. Switch to the **"Add Card"** tab above to add your first card
-        2. Select from library, extract from URL, or import a spreadsheet
+        if hero_action == "demo":
+            st.session_state.demo_mode = True
+            st.session_state.show_welcome = False
+            st.rerun()
+        elif hero_action == "add":
+            st.session_state.show_welcome = False
+            st.rerun()
 
-        **What ChurnPilot tracks:**
-        - Benefit usage (Uber credits, hotel credits, etc.)
-        - Signup bonus deadlines (don't miss out on points!)
-        - Annual fee dates (call for retention offers in time)
-        - Chase 5/24 status (know when you can apply for more Chase cards)
-        """)
+        # Don't show tabs yet for completely new users - just the hero
+        return
 
     # Four main tabs (reordered: Dashboard → Action Required → Add Card → 5/24 Tracker)
     tab1, tab2, tab3, tab4 = st.tabs(["Dashboard", "Action Required", "Add Card", "5/24 Tracker"])

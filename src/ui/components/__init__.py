@@ -132,6 +132,26 @@ from .toast import (
     render_status_indicator,
 )
 
+# Hero / Welcome
+from .hero import (
+    HeroFeature,
+    render_hero,
+    render_demo_banner,
+    HERO_CSS,
+)
+
+# Celebration / Confetti
+from .celebration import (
+    trigger_confetti,
+    render_achievement_card,
+    render_sub_completion_celebration,
+    render_milestone_badge,
+    render_streak_counter,
+    render_success_message,
+    render_benefit_completion_celebration,
+    CELEBRATION_CSS,
+)
+
 __all__ = [
     # Bottom Sheet
     "BottomSheet",
@@ -207,4 +227,18 @@ __all__ = [
     "render_snackbar",
     "render_notification_badge",
     "render_status_indicator",
+    # Hero / Welcome
+    "HeroFeature",
+    "render_hero",
+    "render_demo_banner",
+    "HERO_CSS",
+    # Celebration / Confetti
+    "trigger_confetti",
+    "render_achievement_card",
+    "render_sub_completion_celebration",
+    "render_milestone_badge",
+    "render_streak_counter",
+    "render_success_message",
+    "render_benefit_completion_celebration",
+    "CELEBRATION_CSS",
 ]
