@@ -1,6 +1,8 @@
 """Authentication service for ChurnPilot."""
 
 import re
+import secrets
+from datetime import datetime, timedelta
 from uuid import UUID
 
 import bcrypt
@@ -11,6 +13,10 @@ from .models import User
 
 # Minimum password length
 MIN_PASSWORD_LENGTH = 8
+
+# Session configuration
+SESSION_TOKEN_BYTES = 32  # 32 bytes = 64 hex characters
+SESSION_EXPIRY_HOURS = 24  # Sessions expire after 24 hours of inactivity
 
 # Email regex pattern
 EMAIL_PATTERN = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
@@ -256,3 +262,141 @@ class AuthService:
                 (str(user_id),)
             )
             return cursor.rowcount > 0
+
+    def create_session(self, user_id: UUID) -> str:
+        """Create a new session for a user.
+
+        Creates a secure session token stored in database with 24hr expiry.
+        Old sessions for this user are cleaned up.
+
+        Args:
+            user_id: User's UUID.
+
+        Returns:
+            Session token string (64 hex characters).
+        """
+        # Generate secure random token
+        token = secrets.token_hex(SESSION_TOKEN_BYTES)
+        expires_at = datetime.utcnow() + timedelta(hours=SESSION_EXPIRY_HOURS)
+
+        with get_cursor() as cursor:
+            # Clean up old sessions for this user (keep max 5 active sessions)
+            cursor.execute(
+                """
+                DELETE FROM sessions
+                WHERE user_id = %s
+                AND id NOT IN (
+                    SELECT id FROM sessions
+                    WHERE user_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT 4
+                )
+                """,
+                (str(user_id), str(user_id))
+            )
+
+            # Also clean up expired sessions globally
+            cursor.execute(
+                "DELETE FROM sessions WHERE expires_at < CURRENT_TIMESTAMP"
+            )
+
+            # Create new session
+            cursor.execute(
+                """
+                INSERT INTO sessions (user_id, token, expires_at)
+                VALUES (%s, %s, %s)
+                RETURNING token
+                """,
+                (str(user_id), token, expires_at)
+            )
+
+        return token
+
+    def validate_session(self, token: str) -> User | None:
+        """Validate a session token and return the user if valid.
+
+        Also refreshes the session expiry (sliding window).
+
+        Args:
+            token: Session token to validate.
+
+        Returns:
+            User object if session is valid and not expired, None otherwise.
+        """
+        if not token or len(token) != SESSION_TOKEN_BYTES * 2:
+            return None
+
+        with get_cursor() as cursor:
+            # Get session and user in one query
+            cursor.execute(
+                """
+                SELECT u.id, u.email, u.created_at, u.updated_at, s.expires_at
+                FROM sessions s
+                JOIN users u ON s.user_id = u.id
+                WHERE s.token = %s
+                """,
+                (token,)
+            )
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            # Check if expired
+            if row["expires_at"] < datetime.utcnow():
+                # Clean up expired session
+                cursor.execute(
+                    "DELETE FROM sessions WHERE token = %s",
+                    (token,)
+                )
+                return None
+
+            # Refresh session expiry (sliding window - extends 24hr from now)
+            new_expiry = datetime.utcnow() + timedelta(hours=SESSION_EXPIRY_HOURS)
+            cursor.execute(
+                """
+                UPDATE sessions
+                SET expires_at = %s
+                WHERE token = %s
+                """,
+                (new_expiry, token)
+            )
+
+            return User(
+                id=row["id"],
+                email=row["email"],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+            )
+
+    def delete_session(self, token: str) -> bool:
+        """Delete a session (logout).
+
+        Args:
+            token: Session token to delete.
+
+        Returns:
+            True if session was deleted.
+        """
+        with get_cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM sessions WHERE token = %s",
+                (token,)
+            )
+            return cursor.rowcount > 0
+
+    def delete_all_sessions(self, user_id: UUID) -> int:
+        """Delete all sessions for a user (logout from all devices).
+
+        Args:
+            user_id: User's UUID.
+
+        Returns:
+            Number of sessions deleted.
+        """
+        with get_cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM sessions WHERE user_id = %s",
+                (str(user_id),)
+            )
+            return cursor.rowcount

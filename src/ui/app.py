@@ -147,7 +147,7 @@ from src.core import (
 )
 from src.core.preferences import PreferencesStorage, UserPreferences
 from src.core.exceptions import ExtractionError, StorageError, FetchError
-from src.core.auth import AuthService, validate_email, validate_password, MIN_PASSWORD_LENGTH
+from src.core.auth import AuthService, validate_email, validate_password, MIN_PASSWORD_LENGTH, SESSION_TOKEN_BYTES
 from src.core.db_storage import DatabaseStorage
 from src.core.database import check_connection
 from datetime import timedelta
@@ -218,6 +218,163 @@ Credits and Benefits:
 - Global Entry/TSA PreCheck fee credit ($100 every 4 years)
 """
 
+# Session token storage key
+SESSION_STORAGE_KEY = "churnpilot_session"
+
+
+def _save_session_token(token: str) -> bool:
+    """Save session token to browser localStorage.
+
+    Args:
+        token: Session token to save.
+
+    Returns:
+        True if save was initiated.
+    """
+    try:
+        from streamlit_js_eval import streamlit_js_eval
+
+        # Use incrementing key to force component re-render
+        if "_session_save_counter" not in st.session_state:
+            st.session_state._session_save_counter = 0
+        st.session_state._session_save_counter += 1
+
+        js_code = f"""
+        (function() {{
+            try {{
+                localStorage.setItem('{SESSION_STORAGE_KEY}', '{token}');
+                console.log('[ChurnPilot] Session token saved');
+                return true;
+            }} catch (e) {{
+                console.error('[ChurnPilot] Session save error:', e);
+                return false;
+            }}
+        }})()
+        """
+
+        streamlit_js_eval(
+            js_expressions=js_code,
+            key=f"session_save_{st.session_state._session_save_counter}"
+        )
+        return True
+
+    except Exception as e:
+        print(f"[Session] Save error: {e}")
+        return False
+
+
+def _load_session_token() -> str | None:
+    """Load session token from browser localStorage.
+
+    Returns:
+        Session token if found, None otherwise.
+    """
+    try:
+        from streamlit_js_eval import streamlit_js_eval
+
+        js_code = f"""
+        (function() {{
+            try {{
+                const token = localStorage.getItem('{SESSION_STORAGE_KEY}');
+                console.log('[ChurnPilot] Loading session token:', token ? 'found' : 'not found');
+                return token || null;
+            }} catch (e) {{
+                console.error('[ChurnPilot] Session load error:', e);
+                return null;
+            }}
+        }})()
+        """
+
+        # Use stable key for caching
+        result = streamlit_js_eval(js_expressions=js_code, key="session_loader")
+        return result
+
+    except Exception as e:
+        print(f"[Session] Load error: {e}")
+        return None
+
+
+def _clear_session_token() -> bool:
+    """Clear session token from browser localStorage.
+
+    Returns:
+        True if clear was initiated.
+    """
+    try:
+        from streamlit_js_eval import streamlit_js_eval
+
+        if "_session_clear_counter" not in st.session_state:
+            st.session_state._session_clear_counter = 0
+        st.session_state._session_clear_counter += 1
+
+        js_code = f"""
+        (function() {{
+            try {{
+                localStorage.removeItem('{SESSION_STORAGE_KEY}');
+                console.log('[ChurnPilot] Session token cleared');
+                return true;
+            }} catch (e) {{
+                console.error('[ChurnPilot] Session clear error:', e);
+                return false;
+            }}
+        }})()
+        """
+
+        streamlit_js_eval(
+            js_expressions=js_code,
+            key=f"session_clear_{st.session_state._session_clear_counter}"
+        )
+        return True
+
+    except Exception as e:
+        print(f"[Session] Clear error: {e}")
+        return False
+
+
+def check_stored_session() -> bool:
+    """Check for stored session token and restore session if valid.
+
+    This is called on page load to restore authentication from browser storage.
+
+    Returns:
+        True if session was restored, False otherwise.
+    """
+    # Skip if already authenticated
+    if "user_id" in st.session_state:
+        return True
+
+    # Check for session restoration in progress
+    if st.session_state.get("_session_check_done"):
+        return False
+
+    token = _load_session_token()
+
+    # First render returns None - wait for next rerun
+    if token is None:
+        return False
+
+    # No token found
+    if not token or len(token) != SESSION_TOKEN_BYTES * 2:
+        st.session_state._session_check_done = True
+        return False
+
+    # Validate token against database
+    auth = AuthService()
+    user = auth.validate_session(token)
+
+    if user:
+        # Restore session
+        st.session_state.user_id = str(user.id)
+        st.session_state.user_email = user.email
+        st.session_state.session_token = token
+        st.session_state._session_check_done = True
+        return True
+    else:
+        # Invalid/expired token - clear it
+        _clear_session_token()
+        st.session_state._session_check_done = True
+        return False
+
 
 def show_auth_page():
     """Show login/register page.
@@ -251,8 +408,13 @@ def show_auth_page():
                 else:
                     user = auth.login(email, password)
                     if user:
+                        # Create persistent session
+                        token = auth.create_session(user.id)
                         st.session_state.user_id = str(user.id)
                         st.session_state.user_email = user.email
+                        st.session_state.session_token = token
+                        # Save to browser localStorage for persistence across refresh
+                        _save_session_token(token)
                         st.rerun()
                     else:
                         st.error("Invalid email or password")
@@ -280,8 +442,13 @@ def show_auth_page():
                 else:
                     try:
                         user = auth.register(email, password)
+                        # Create persistent session
+                        token = auth.create_session(user.id)
                         st.session_state.user_id = str(user.id)
                         st.session_state.user_email = user.email
+                        st.session_state.session_token = token
+                        # Save to browser localStorage for persistence across refresh
+                        _save_session_token(token)
                         st.success("Account created! Redirecting...")
                         st.rerun()
                     except ValueError as e:
@@ -296,8 +463,19 @@ def show_user_menu():
         st.markdown(f"**Logged in as:** {st.session_state.user_email}")
 
         if st.button("Logout", use_container_width=True):
+            # Delete session from database
+            if "session_token" in st.session_state:
+                auth = AuthService()
+                auth.delete_session(st.session_state.session_token)
+                del st.session_state.session_token
+            # Clear browser localStorage
+            _clear_session_token()
+            # Clear session state
             del st.session_state.user_id
             del st.session_state.user_email
+            # Reset session check flag so it can check again on next login
+            if "_session_check_done" in st.session_state:
+                del st.session_state._session_check_done
             st.rerun()
 
         with st.expander("Change Password"):
@@ -494,6 +672,13 @@ def render_add_card_section():
         st.success(f"✓ Successfully added: {st.session_state.card_add_success}")
         st.session_state.card_add_success = None  # Clear after showing
 
+    # Show success message if cards were just imported
+    if st.session_state.get("import_success_count"):
+        count = st.session_state.import_success_count
+        st.success(f"✓ Successfully imported {count} card{'s' if count != 1 else ''}!")
+        st.balloons()
+        st.session_state.import_success_count = None  # Clear after showing
+
     # Quick add from library (primary method)
     st.subheader("Quick Add from Library")
 
@@ -648,10 +833,10 @@ def render_add_card_section():
                         # CRITICAL: Save IMMEDIATELY after adding card
                         # This ensures data is saved even if user navigates away quickly
                                                 # Show immediate success feedback via toast
-                        st.toast(f"✓ Added: {card.name}", icon="✅")
-                        # Store success for additional confirmation at top of Add Card section
+                        # Store success for confirmation at top of Add Card section after rerun
                         st.session_state.card_add_success = card.name
-                        st.success(f"✓ Card added! Navigate to Dashboard to view.")
+                        # Rerun to refresh all tabs (Dashboard will now show the new card)
+                        st.rerun()
                     except StorageError as e:
                         st.error(f"Failed: {e}")
 
@@ -919,11 +1104,11 @@ def render_add_card_section():
                             imported = importer.import_cards(st.session_state.parsed_import)
 
                             # Save immediately (DatabaseStorage auto-persists)
-                            show_toast_success(f"Imported {len(imported)} cards!")
-                            st.success(f"Navigate to Dashboard to view your {len(imported)} imported cards.")
                             st.session_state.parsed_import = None
                             st.session_state.spreadsheet_data_loaded = False  # Reset progress
-                            st.balloons()
+                            st.session_state.import_success_count = len(imported)
+                            # Rerun to refresh all tabs (Dashboard will now show imported cards)
+                            st.rerun()
                         except Exception as e:
                             show_toast_error(f"Import failed: {e}")
                             import traceback
@@ -1079,11 +1264,10 @@ def render_extraction_result():
                 if ext_nickname:
                     st.session_state.storage.update_card(card.id, {"nickname": ext_nickname})
                 st.session_state.last_extraction = None
-                # Show immediate success feedback via toast
-                st.toast(f"✓ Added: {card.name}", icon="✅")
-                # Store success for additional confirmation at top of Add Card section
+                # Store success for confirmation at top of Add Card section after rerun
                 st.session_state.card_add_success = card.name
-                st.success(f"✓ Card added! Navigate to Dashboard to view.")
+                # Rerun to refresh all tabs (Dashboard will now show the new card)
+                st.rerun()
             except StorageError as e:
                 st.error(f"Failed: {e}")
 
@@ -2462,6 +2646,11 @@ def main():
     # Inject custom CSS (both app-specific and component CSS)
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
     st.markdown(COMPONENT_CSS, unsafe_allow_html=True)
+
+    # Try to restore session from browser storage (persists across page refresh)
+    # This runs on every page load - if session token is found and valid,
+    # it restores user_id and user_email to session state
+    check_stored_session()
 
     # Auth check - show login if not authenticated
     if "user_id" not in st.session_state:
